@@ -1,0 +1,35 @@
+pulp_servers:
+  # Primary Pulp instance
+  pulp-web-primary:8080:
+    credentials: local
+    repo_config_registration:
+        schedule: "0,15,30,45 * * * *"
+        max_runtime: "20m"
+    repo_groups:
+      external_repos:
+        schedule: "00 02 * * *"
+        max_concurrent_syncs: 2
+        max_runtime: "6h"
+    snapshot_support:
+      max_concurrent_snapshots: 2
+
+  # Secondary Pulp instance - syncs from primary
+  pulp-web-secondary:8080:
+    credentials: local
+    repo_groups:
+      external_repos:
+        schedule: "00 06 * * *"
+        max_concurrent_syncs: 2
+        max_runtime: "6h"
+        pulp_master: pulp-web-primary:8080
+
+credentials:
+  local:
+    username: admin
+    vault_service_account_mount: service-accounts # optional: Password is loaded from ini file.
+
+repo_groups:
+  external_repos:
+    regex_include: "^ext-"
+  internal_repos:
+    regex_include: "^int-"
