@@ -43,12 +43,12 @@ venv: requirements.txt
 
 run-pulp-manager: setup-network
 	@echo "Starting local Docker Compose environment..."
-	docker compose -f docker/docker-compose.yml up --build
+	docker compose -f docker/local/docker-compose.yml up --build
 
 .PHONY : run-pulp3
 run-pulp3: setup-network setup-pulp-keys
 	@echo "Starting Pulp 3 locally with Docker Compose..."
-	docker compose -f docker/pulp3.yml up --build
+	docker compose -f docker/local/pulp-primary.yml up --build
 
 .PHONY : run-cluster
 run-cluster: setup-network setup-pulp-keys
