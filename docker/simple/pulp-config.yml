@@ -1,7 +1,11 @@
 pulp_servers:
   pulp-primary:80:
     credentials: local
-    repo_config_registration_schedule: "0,15,30,45 * * * *"
+    repo_groups:
+      default:
+        schedule: "0 * * * *"  # Every hour
+        max_concurrent_syncs: 1
+        max_runtime: "1h"
     
   pulp-secondary:80:
     credentials: local
@@ -20,4 +24,12 @@ pulp_servers:
 credentials:
   local:
     username: admin
-    password: password
+    vault_service_account_mount: local-auth
+
+repo_groups:
+  default:
+    regex_include: ".*"  # Match all repositories
+  external_repos:
+    regex_include: "^ext"  # Match repositories starting with "ext"
+  internal_repos:
+    regex_include: "^int"  # Match repositories starting with "int"

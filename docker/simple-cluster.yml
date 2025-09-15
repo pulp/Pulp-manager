@@ -61,10 +61,8 @@ services:
 
   pulp-manager-api:
     build: ..
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["/usr/local/bin/pulp-manager -m && /usr/local/bin/pulp-manager -a --no-ssl --dev && /usr/local/bin/pulp-manager -w"]
-    volumes:
-      - ../..:/pulp_manager
+    entrypoint: ["/bin/sh", "-c"] 
+    command: ["/usr/local/bin/pulp-manager -m && /usr/local/bin/pulp-manager -a --no-ssl --dev"]
     ports:
       - "8080:8000"
     environment:
@@ -86,8 +84,6 @@ services:
     build: ..
     entrypoint: ["/bin/sh", "-c"]
     command: ["/usr/local/bin/pulp-manager -w"]
-    volumes:
-      - ../..:/pulp_manager
     environment:
       DB_HOSTNAME: mariadb
       DB_NAME: pulp_manager
@@ -108,8 +104,6 @@ services:
     build: ..
     entrypoint: ["/bin/sh", "-c"]
     command: ["/usr/local/bin/pulp-manager -s"]
-    volumes:
-      - ../..:/pulp_manager
     environment:
       DB_HOSTNAME: mariadb
       DB_NAME: pulp_manager

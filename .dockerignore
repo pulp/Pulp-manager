@@ -1,0 +1,8 @@
+assets/keys/gpg/
+assets/certs/
+.claude/
+.coverage
+docker/simple/pulp-primary/storage/
+docker/simple/pulp-primary/pgsql/
+docker/simple/pulp-secondary/storage/
+docker/simple/pulp-secondary/pgsql/

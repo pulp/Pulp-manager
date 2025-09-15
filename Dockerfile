@@ -39,14 +39,8 @@ RUN apt-get update && apt-get install -y netcat-openbsd git make python3-dev lib
 COPY --from=builder /opt/venv /opt/venv
 # Copy requirements file
 COPY --from=builder /pulp_manager/requirements.txt ./
-# Copy application code and other necessary files
-COPY alembic.ini pylint.rc pytest.ini wait_db.sh *.yml ./
-ADD alembic ./alembic/.
-ADD Makefile .
-ADD local_config.ini .
-ADD local_pulp_config.yml ./local_pulp_config.yml
-ADD pulp-manager.sh .
-ADD pulp_manager ./pulp_manager/.
+# Copy the entire project
+COPY . .
 
 # Ensure correct permissions
 RUN chown -R pulp_manager:pulp_manager /pulp_manager \

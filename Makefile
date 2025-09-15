@@ -19,7 +19,7 @@ h help:
 	"run-pulp3"	"Start Pulp 3 locally with Docker Compose" \
 	"run-pulp-manager"    "Start Pulp Manager with Docker Compose" \
 	"run-cluster"	      "Start Pulp3 + Pulp Manger local cluster with Docker Compose" \
-	"upload-demo-package" "Upload demo deb package to local cluster pulp3-primary"
+	"setup-demo"    "Setup complete demo environment with repositories and packages"
 
 .PHONY : l lint
 l lint: venv
@@ -82,8 +82,9 @@ setup-keys:
 		echo "Container auth keys already exist."; \
 	fi
 	@mkdir -p assets/keys/gpg
-	@if [ ! -f assets/keys/gpg/secring.gpg ]; then \
+	@if [ ! -f assets/keys/gpg/public.key ] || [ ! -s assets/keys/gpg/public.key ]; then \
 		echo "Generating GPG signing keys..."; \
+		rm -rf assets/keys/gpg/*; \
 		chmod 700 assets/keys/gpg; \
 		echo "Key-Type: RSA" > /tmp/gpg-batch-config; \
 		echo "Key-Length: 2048" >> /tmp/gpg-batch-config; \
@@ -92,15 +93,15 @@ setup-keys:
 		echo "Expire-Date: 0" >> /tmp/gpg-batch-config; \
 		echo "%no-protection" >> /tmp/gpg-batch-config; \
 		echo "%commit" >> /tmp/gpg-batch-config; \
-		GNUPGHOME=assets/keys/gpg gpg --batch --gen-key /tmp/gpg-batch-config; \
-		GNUPGHOME=assets/keys/gpg gpg --armor --export > assets/keys/gpg/public.key; \
+		GNUPGHOME=assets/keys/gpg gpg --batch --no-default-keyring --keyring assets/keys/gpg/pubring.kbx --gen-key /tmp/gpg-batch-config; \
+		GNUPGHOME=assets/keys/gpg gpg --no-default-keyring --keyring assets/keys/gpg/pubring.kbx --armor --export > assets/keys/gpg/public.key; \
 		rm /tmp/gpg-batch-config; \
 		echo "GPG signing keys created."; \
 	else \
 		echo "GPG signing keys already exist."; \
 	fi
 
-.PHONY : upload-demo-package
-upload-demo-package:
-	@echo "Uploading demo package to pulp3-primary..."
-	@./upload-package.sh
+.PHONY : setup-demo
+setup-demo:
+	@echo "Setting up complete demo environment..."
+	@./setup-demo.sh
