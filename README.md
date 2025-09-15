@@ -180,6 +180,7 @@ internal_package_prefix=corp_
 package_name_replacement_pattern=
 package_name_replacement_rule=
 remote_tls_validation=true
+use_https_for_sync=true
 
 [redis]
 host=redis
@@ -239,6 +240,8 @@ Settings to apply to all pulp servers
   the pulp repo config
 - `remote_tls_validation`: Boolean whether to require TLS validation
   of remote hosts
+- `use_https_for_sync`: Boolean whether to use HTTPS for repository sync URLs.
+  Set to false for local HTTP-only development environments. Defaults to true.
 
 ### redis
 

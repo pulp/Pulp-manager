@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+  pulp-primary:
+    image: pulp/pulp:stable
+    ports:
+      - "8000:80"
+    environment:
+      - POSTGRES_PASSWORD=password
+      - PULP_DEFAULT_ADMIN_PASSWORD=password
+    volumes:
+      - "./simple/pulp-primary/storage:/var/lib/pulp"
+      - "./simple/pulp-primary/pgsql:/var/lib/pgsql"
+      - "./simple/pulp-primary/containers:/var/lib/containers"
+      - "./simple/settings:/etc/pulp:z"
+      - "../assets/scripts:/opt/scripts:z"
+      - "../assets/keys/gpg:/opt/gpg:z"
+    devices:
+      - "/dev/fuse"
+    networks:
+      - pulp-net
+
+  pulp-secondary:
+    image: pulp/pulp:stable
+    ports:
+      - "8001:80"
+    environment:
+      - POSTGRES_PASSWORD=password
+      - PULP_DEFAULT_ADMIN_PASSWORD=password
+    volumes:
+      - "./simple/pulp-secondary/storage:/var/lib/pulp"
+      - "./simple/pulp-secondary/pgsql:/var/lib/pgsql"
+      - "./simple/pulp-secondary/containers:/var/lib/containers"
+      - "./simple/settings:/etc/pulp:z"
+      - "../assets/scripts:/opt/scripts:z"
+      - "../assets/keys/gpg:/opt/gpg:z"
+    devices:
+      - "/dev/fuse"
+    networks:
+      - pulp-net
+
+  # Pulp Manager services
+  mariadb:
+    image: mariadb:11.1.2-jammy
+    ports:
+      - "3306:3306"
+    environment:
+      MARIADB_USER: pulp-manager
+      MARIADB_PASSWORD: pulp-manager
+      MARIADB_ROOT_PASSWORD: my-root-password
+      MARIADB_DATABASE: pulp_manager
+    networks:
+      - pulp-net
+
+  redis-manager:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - pulp-net
+
+  pulp-manager-api:
+    build: ..
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/usr/local/bin/pulp-manager -m && /usr/local/bin/pulp-manager -a --no-ssl --dev && /usr/local/bin/pulp-manager -w"]
+    volumes:
+      - ../..:/pulp_manager
+    ports:
+      - "8080:8000"
+    environment:
+      DB_HOSTNAME: mariadb
+      DB_NAME: pulp_manager
+      DB_USER: pulp-manager
+      DB_PASSWORD: pulp-manager
+      JWT_SECRET: test_secret
+      PULP_MANAGER_CONFIG_PATH: /pulp_manager/docker/simple/config.ini
+      PULP_SYNC_CONFIG_PATH: /pulp_manager/docker/simple/pulp-config.yml
+      Is_local: true
+    depends_on:
+      - mariadb
+      - redis-manager
+    networks:
+      - pulp-net
+
+  pulp-manager-worker:
+    build: ..
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/usr/local/bin/pulp-manager -w"]
+    volumes:
+      - ../..:/pulp_manager
+    environment:
+      DB_HOSTNAME: mariadb
+      DB_NAME: pulp_manager
+      DB_USER: pulp-manager
+      DB_PASSWORD: pulp-manager
+      JWT_SECRET: test_secret
+      PULP_MANAGER_CONFIG_PATH: /pulp_manager/docker/simple/config.ini
+      PULP_SYNC_CONFIG_PATH: /pulp_manager/docker/simple/pulp-config.yml
+      Is_local: true
+    depends_on:
+      - mariadb
+      - redis-manager
+      - pulp-manager-api
+    networks:
+      - pulp-net
+
+  pulp-manager-scheduler:
+    build: ..
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/usr/local/bin/pulp-manager -s"]
+    volumes:
+      - ../..:/pulp_manager
+    environment:
+      DB_HOSTNAME: mariadb
+      DB_NAME: pulp_manager
+      DB_USER: pulp-manager
+      DB_PASSWORD: pulp-manager
+      JWT_SECRET: test_secret
+      PULP_MANAGER_CONFIG_PATH: /pulp_manager/docker/simple/config.ini
+      PULP_SYNC_CONFIG_PATH: /pulp_manager/docker/simple/pulp-config.yml
+      Is_local: true
+    depends_on:
+      - mariadb
+      - redis-manager
+      - pulp-manager-api
+    networks:
+      - pulp-net
+
+networks:
+  pulp-net:
+    external: true

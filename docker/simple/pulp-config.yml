@@ -1,0 +1,23 @@
+pulp_servers:
+  pulp-primary:80:
+    credentials: local
+    repo_config_registration_schedule: "0,15,30,45 * * * *"
+    
+  pulp-secondary:80:
+    credentials: local
+    repo_groups:
+      external_repos:
+        schedule: "*/5 * * * *"  # Every 5 minutes
+        max_concurrent_syncs: 2
+        max_runtime: "6h"
+        pulp_master: pulp-primary:80
+      internal_repos:
+        schedule: "* * * * *"  # Every 1 minute
+        max_concurrent_syncs: 2
+        max_runtime: "1h"
+        pulp_master: pulp-primary:80
+
+credentials:
+  local:
+    username: admin
+    password: password

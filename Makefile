@@ -15,9 +15,11 @@ h help:
 	"venv"          "Create virtualenv" \
 	"bdist"         "Create wheel file" \
 	"clean"         "Clean workspace" \
+        "setup-keys"    "Generates keys for use in local cluster" \
 	"run-pulp3"	"Start Pulp 3 locally with Docker Compose" \
-	"run-pulp-manager" "Start Pulp Manager with Docker Compose" \
-	"run-cluster"	"Start Pulp3 + Pulp Manger cluster with Docker Compose"
+	"run-pulp-manager"    "Start Pulp Manager with Docker Compose" \
+	"run-cluster"	      "Start Pulp3 + Pulp Manger local cluster with Docker Compose" \
+	"upload-demo-package" "Upload demo deb package to local cluster pulp3-primary"
 
 .PHONY : l lint
 l lint: venv
@@ -41,21 +43,19 @@ venv: requirements.txt
 	pip install --upgrade pip; \
 	pip install -r requirements.txt
 
-run-pulp-manager: setup-network
-	@echo "Starting local Docker Compose environment..."
-	docker compose -f docker/local/docker-compose.yml up --build
+run-pulp-manager: setup-network setup-keys
+	@echo "Starting Pulp Manager services..."
+	docker compose -f docker/simple-cluster.yml up mariadb redis-manager pulp-manager-api pulp-manager-worker pulp-manager-scheduler --build
 
 .PHONY : run-pulp3
-run-pulp3: setup-network setup-pulp-keys
-	@echo "Starting Pulp 3 locally with Docker Compose..."
-	docker compose -f docker/local/pulp-primary.yml up --build
+run-pulp3: setup-network
+	@echo "Starting simplified Pulp 3 primary and secondary..."
+	docker compose -f docker/simple-cluster.yml up pulp-primary pulp-secondary --build
 
 .PHONY : run-cluster
-run-cluster: setup-network setup-pulp-keys
-	@echo "Starting complete local cluster with Pulp Manager, Primary and Secondary Pulp instances..."
-	docker compose -f docker/local/docker-compose.yml \
-	              -f docker/local/pulp-primary.yml \
-	              -f docker/local/pulp-secondary.yml up --build
+run-cluster: setup-network setup-keys
+	@echo "Starting complete simplified cluster with Pulp Manager, Primary and Secondary Pulp instances..."
+	docker compose -f docker/simple-cluster.yml up --build
 
 setup-network:
 	@echo "Creating or verifying network..."
@@ -63,7 +63,7 @@ setup-network:
 	docker network create pulp-net
 	@echo "Network setup completed."
 
-setup-pulp-keys:
+setup-keys:
 	@echo "Checking for Pulp encryption keys..."
 	@mkdir -p assets/certs assets/keys assets/nginx-conf
 	@if [ ! -f assets/certs/database_fields.symmetric.key ]; then \
@@ -81,3 +81,26 @@ setup-pulp-keys:
 	else \
 		echo "Container auth keys already exist."; \
 	fi
+	@mkdir -p assets/keys/gpg
+	@if [ ! -f assets/keys/gpg/secring.gpg ]; then \
+		echo "Generating GPG signing keys..."; \
+		chmod 700 assets/keys/gpg; \
+		echo "Key-Type: RSA" > /tmp/gpg-batch-config; \
+		echo "Key-Length: 2048" >> /tmp/gpg-batch-config; \
+		echo "Name-Real: Demo Signing Service" >> /tmp/gpg-batch-config; \
+		echo "Name-Email: signing@pulp-demo.local" >> /tmp/gpg-batch-config; \
+		echo "Expire-Date: 0" >> /tmp/gpg-batch-config; \
+		echo "%no-protection" >> /tmp/gpg-batch-config; \
+		echo "%commit" >> /tmp/gpg-batch-config; \
+		GNUPGHOME=assets/keys/gpg gpg --batch --gen-key /tmp/gpg-batch-config; \
+		GNUPGHOME=assets/keys/gpg gpg --armor --export > assets/keys/gpg/public.key; \
+		rm /tmp/gpg-batch-config; \
+		echo "GPG signing keys created."; \
+	else \
+		echo "GPG signing keys already exist."; \
+	fi
+
+.PHONY : upload-demo-package
+upload-demo-package:
+	@echo "Uploading demo package to pulp3-primary..."
+	@./upload-package.sh
