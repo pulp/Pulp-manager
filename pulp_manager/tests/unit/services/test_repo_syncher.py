@@ -439,8 +439,8 @@ class TestRepoSyncher:
         result = self.repo_syncher._start_remove_banned_packages(task)
         assert result == False
 
-    @patch("pulp_manager.app.services.repo_syncher.get_repo")
-    @patch("pulp_manager.app.services.repo_syncher.get_remote")
+    @patch("pulp_manager.app.services.repo_syncher.get_repo", autospec=True)
+    @patch("pulp_manager.app.services.repo_syncher.get_remote", autospec=True)
     def test_start_remove_banned_packages_skip2(self, mock_get_remote, mock_get_repo):
         """Tests that if the feed was from an internal domain then no checks are done for
         banned packages
@@ -449,13 +449,14 @@ class TestRepoSyncher:
         mock_get_repo.return_value = RpmRepository(**{
             "pulp_href": "/pulp/api/v3/repositories/rpm/rpm/123",
             "name": "test-rpm",
-            "latest_version_href": "/pulp/api/v3/repositories/rpm/rpm/123/versions/1"
+            "latest_version_href": "/pulp/api/v3/repositories/rpm/rpm/123/versions/1",
+            "remote": "/pulp/api/v3/remotes/rpm/rpm/123"
         })
 
         mock_get_remote.return_value = RpmRemote(**{
             "pulp_href": "/pulp/api/v3/remotes/rpm/rpm/123",
             "name": "test-rpm",
-            "url": "https://pulp.example.com/",
+            "url": "https://pulp-primary/pulp/content/test-repo/",
             "policy": "immediate"
         })
 
