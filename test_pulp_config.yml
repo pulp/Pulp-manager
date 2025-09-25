@@ -1,0 +1,14 @@
+credentials:
+  pulp_servers:
+    - pulp_server: http://localhost:8000
+      user: admin
+      password: password
+
+repo_groups:
+  - name: test-group
+    sync_schedule: "0 */6 * * *"
+
+pulp_servers:
+  - pulp_server: http://localhost:8000
+    repo_groups:
+      - test-group
