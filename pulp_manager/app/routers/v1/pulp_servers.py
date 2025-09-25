@@ -357,9 +357,6 @@ def snapshot_repos(
     name="pulp_servers_v1:sync_repos",
     response_model=Task,
     status_code=201,
-    dependencies=[
-        Depends(JWTBearer(allowed_groups=CONFIG["auth"]["admin_group"].split(",")))
-    ],
 )
 def sync_repos(id: int, sync_config: PulpServerSyncConfig, db: get_session = Depends()):
     """Queues a repo sync job against the specified pulp server"""

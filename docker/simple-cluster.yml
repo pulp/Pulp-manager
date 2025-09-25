@@ -100,6 +100,26 @@ services:
     networks:
       - pulp-net
 
+  pulp-manager-rq-dashboard:
+    build: ..
+    entrypoint: ["/bin/sh", "-c"] 
+    command: ["/opt/venv/bin/rq-dashboard --bind 0.0.0.0 --port 9181 --redis-url redis://redis-manager:6379"]
+    ports:
+      - "9181:9181"
+    environment:
+      DB_HOSTNAME: mariadb
+      DB_NAME: pulp_manager
+      DB_USER: pulp-manager
+      DB_PASSWORD: pulp-manager
+      JWT_SECRET: test_secret
+      PULP_MANAGER_CONFIG_PATH: /pulp_manager/docker/simple/config.ini
+      PULP_SYNC_CONFIG_PATH: /pulp_manager/docker/simple/pulp-config.yml
+      Is_local: true
+    depends_on:
+      - redis-manager
+    networks:
+      - pulp-net
+
   pulp-manager-scheduler:
     build: ..
     entrypoint: ["/bin/sh", "-c"]

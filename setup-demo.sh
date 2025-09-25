@@ -51,75 +51,128 @@ wait_for_task() {
     done
 }
 
+# Function to setup repository and remote on a server
+setup_repo_and_remote() {
+    local server="$1"
+    local repo_name="$2"
+    local repo_desc="$3"
+    local remote_name="$4"
+    local remote_url="$5"
+    local distributions="$6"
+    local components="$7"
+    local architectures="$8"
+
+    echo "  📦 Setting up $repo_name on $(basename $server)..."
+
+    # Create repository
+    if check_exists "$server/pulp/api/v3/repositories/deb/apt/" "$repo_name"; then
+        echo "    ✅ Repository '$repo_name' already exists"
+        REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$server/pulp/api/v3/repositories/deb/apt/?name=$repo_name")
+        REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.results[0].pulp_href')
+    else
+        echo "    📦 Creating repository '$repo_name'..."
+        REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$server/pulp/api/v3/repositories/deb/apt/" \
+            -H "Content-Type: application/json" \
+            -d "{\"name\": \"$repo_name\", \"description\": \"$repo_desc\"}")
+        REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.pulp_href')
+        echo "    ✅ Repository created: $REPO_HREF"
+    fi
+
+    # Only create remotes and associate them for secondary server (when remote_url is provided)
+    if [ -n "$remote_url" ]; then
+        # Create remote
+        if check_exists "$server/pulp/api/v3/remotes/deb/apt/" "$remote_name"; then
+            echo "    ✅ Remote '$remote_name' already exists"
+            REMOTE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$server/pulp/api/v3/remotes/deb/apt/?name=$remote_name")
+            REMOTE_HREF=$(echo "$REMOTE_RESPONSE" | jq -r '.results[0].pulp_href')
+        else
+            echo "    🌐 Creating remote '$remote_name'..."
+            remote_data="{\"name\": \"$remote_name\", \"url\": \"$remote_url\", \"distributions\": \"$distributions\""
+            if [ -n "$components" ]; then
+                remote_data="$remote_data, \"components\": \"$components\""
+            fi
+            if [ -n "$architectures" ]; then
+                remote_data="$remote_data, \"architectures\": \"$architectures\""
+            fi
+            remote_data="$remote_data}"
+            
+            REMOTE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$server/pulp/api/v3/remotes/deb/apt/" \
+                -H "Content-Type: application/json" \
+                -d "$remote_data")
+            REMOTE_HREF=$(echo "$REMOTE_RESPONSE" | jq -r '.pulp_href')
+            echo "    ✅ Remote created: $REMOTE_HREF"
+        fi
+
+        # Associate remote with repository
+        echo "    🔗 Associating remote with repository..."
+        REPO_UPDATE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X PATCH "$server$REPO_HREF" \
+            -H "Content-Type: application/json" \
+            -d "{\"remote\": \"$REMOTE_HREF\"}")
+
+        if echo "$REPO_UPDATE_RESPONSE" | jq -e '.task' > /dev/null; then
+            TASK_HREF=$(echo "$REPO_UPDATE_RESPONSE" | jq -r '.task')
+            wait_for_task "$TASK_HREF" "$server"
+        fi
+    fi
+
+    echo "REPO_HREF_${repo_name//-/_}=$REPO_HREF"
+    
+    # Export variables for later use
+    export "REPO_HREF_${repo_name//-/_}"="$REPO_HREF"
+    if [ -n "$remote_url" ]; then
+        export "REMOTE_HREF_${repo_name//-/_}"="$REMOTE_HREF"
+    fi
+}
+
+# Function to update pulp-manager database with remote associations
+update_pulp_manager_db() {
+    local server_id="$1"
+    local repo_name="$2" 
+    local remote_href="$3"
+    
+    echo "  🔄 Updating pulp-manager database for $repo_name on server $server_id..."
+    
+    # Wait for pulp-manager to discover the repository first
+    sleep 5
+    
+    # Get the pulp-manager repo ID by querying repos for the server
+    local pm_repo_response=$(curl -s "http://localhost:8080/v1/pulp_servers/$server_id/repos")
+    local pm_repo_id=$(echo "$pm_repo_response" | jq -r ".items[] | select(.name == \"$repo_name\") | .id")
+    
+    if [ -n "$pm_repo_id" ] && [ "$pm_repo_id" != "null" ]; then
+        # Update the database directly
+        docker exec docker-mariadb-1 mariadb -u pulp-manager -ppulp-manager pulp_manager \
+            -e "UPDATE pulp_server_repos SET remote_href = '$remote_href' WHERE id = $pm_repo_id;"
+        echo "    ✅ Updated pulp-manager database: repo ID $pm_repo_id -> $remote_href"
+    else
+        echo "    ⚠️  Could not find repo $repo_name in pulp-manager database for server $server_id"
+        echo "    Available repos: $(echo "$pm_repo_response" | jq -r '.items[].name' | tr '\n' ' ')"
+    fi
+}
+
 echo ""
-echo "Step 1: Creating External Repository (ext-small-repo)"
-echo "===================================================="
+echo "Step 1: Setting up Primary Server Repositories"
+echo "=============================================="
 
-# Create external repository
-if check_exists "$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/" "ext-small-repo"; then
-    echo "  ✅ Repository 'ext-small-repo' already exists"
-    EXT_REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/?name=ext-small-repo")
-    EXT_REPO_HREF=$(echo "$EXT_REPO_RESPONSE" | jq -r '.results[0].pulp_href')
-else
-    echo "  📦 Creating repository 'ext-small-repo'..."
-    EXT_REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/" \
-        -H "Content-Type: application/json" \
-        -d '{"name": "ext-small-repo", "description": "External small Debian testing repository"}')
-    EXT_REPO_HREF=$(echo "$EXT_REPO_RESPONSE" | jq -r '.pulp_href')
-    echo "  ✅ Repository created: $EXT_REPO_HREF"
-fi
+# Setup external repo on primary with upstream remote
+setup_repo_and_remote "$PULP_PRIMARY" "ext-small-repo" "External small Debian testing repository" \
+    "debian-testing-remote" "http://deb.debian.org/debian/" "testing" "main" "amd64"
+eval $(echo "REPO_HREF_ext_small_repo=$REPO_HREF")
 
-# Create remote for Debian testing with limited components
-if check_exists "$PULP_PRIMARY/pulp/api/v3/remotes/deb/apt/" "debian-testing-remote"; then
-    echo "  ✅ Remote 'debian-testing-remote' already exists"
-    REMOTE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY/pulp/api/v3/remotes/deb/apt/?name=debian-testing-remote")
-    REMOTE_HREF=$(echo "$REMOTE_RESPONSE" | jq -r '.results[0].pulp_href')
-else
-    echo "  🌐 Creating remote for Debian testing (limited components)..."
-    REMOTE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/remotes/deb/apt/" \
-        -H "Content-Type: application/json" \
-        -d '{
-            "name": "debian-testing-remote",
-            "url": "http://deb.debian.org/debian/",
-            "distributions": "testing",
-            "components": "main",
-            "architectures": "amd64",
-            "sync_sources": false,
-            "sync_udebs": false,
-            "sync_installer": false
-        }')
-    REMOTE_HREF=$(echo "$REMOTE_RESPONSE" | jq -r '.pulp_href')
-    echo "  ✅ Remote created: $REMOTE_HREF"
-fi
-
-# Associate remote with repository
-echo "  🔗 Associating remote with repository..."
-REPO_UPDATE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X PATCH "$PULP_PRIMARY$EXT_REPO_HREF" \
-    -H "Content-Type: application/json" \
-    -d "{\"remote\": \"$REMOTE_HREF\"}")
-
-if echo "$REPO_UPDATE_RESPONSE" | jq -e '.task' > /dev/null; then
-    TASK_HREF=$(echo "$REPO_UPDATE_RESPONSE" | jq -r '.task')
-    wait_for_task "$TASK_HREF" "$PULP_PRIMARY"
-fi
+# Setup internal repo on primary (no remote needed)
+setup_repo_and_remote "$PULP_PRIMARY" "int-demo-packages" "Internal demo repository" "" "" "" "" ""
+eval $(echo "REPO_HREF_int_demo_packages=$REPO_HREF")
 
 echo ""
-echo "Step 2: Creating Internal Repository (int-demo-packages)"
-echo "======================================================="
+echo "Step 2: Setting up Secondary Server Repositories"
+echo "==============================================="
 
-# Create internal repository
-if check_exists "$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/" "int-demo-packages"; then
-    echo "  ✅ Repository 'int-demo-packages' already exists"
-    INT_REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/?name=int-demo-packages")
-    INT_REPO_HREF=$(echo "$INT_REPO_RESPONSE" | jq -r '.results[0].pulp_href')
-else
-    echo "  📦 Creating repository 'int-demo-packages'..."
-    INT_REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/" \
-        -H "Content-Type: application/json" \
-        -d '{"name": "int-demo-packages", "description": "Internal demo repository"}')
-    INT_REPO_HREF=$(echo "$INT_REPO_RESPONSE" | jq -r '.pulp_href')
-    echo "  ✅ Repository created: $INT_REPO_HREF"
-fi
+# Setup repos on secondary that sync from primary
+setup_repo_and_remote "$PULP_SECONDARY" "int-demo-packages" "Internal demo packages synced from primary" \
+    "int-demo-remote" "http://docker-pulp-primary-1/pulp/content/int-demo-packages/" "stable" "" ""
+
+setup_repo_and_remote "$PULP_SECONDARY" "ext-small-repo" "External small repo synced from primary" \
+    "ext-small-remote" "http://docker-pulp-primary-1/pulp/content/ext-small-repo/" "testing" "main" "amd64"
 
 echo ""
 echo "Step 3: Uploading Demo Package to Internal Repository"
@@ -242,6 +295,14 @@ else
 fi
 
 echo ""
+echo "Step 6: Updating Pulp Manager Database"
+echo "======================================"
+
+# Update pulp-manager database with remote associations for secondary server (ID=2)
+update_pulp_manager_db "2" "int-demo-packages" "$REMOTE_HREF_int_demo_packages"
+update_pulp_manager_db "2" "ext-small-repo" "$REMOTE_HREF_ext_small_repo"
+
+echo ""
 echo "🎉 Demo Setup Complete!"
 echo "======================"
 echo ""
@@ -249,9 +310,11 @@ echo "Available repositories:"
 echo "  📦 ext-small-repo (external): $PULP_PRIMARY/pulp/content/ext-small-repo/"
 echo "  📦 int-demo-packages (internal): $PULP_PRIMARY/pulp/content/int-demo-packages/"
 echo ""
-echo "Next steps:"
-echo "  1. Sync external repository: curl -u admin:password -X POST '$PULP_PRIMARY${EXT_REPO_HREF}sync/' -H 'Content-Type: application/json' -d '{\"remote\": \"$REMOTE_HREF\"}'"
-echo "  2. Check sync status via Pulp Manager API"
-echo "  3. Configure secondary server to sync from primary"
+echo "Pulp Manager sync commands:"
+echo "  # Sync internal repositories:"
+echo "  curl -X POST 'http://localhost:8080/v1/pulp_servers/2/sync_repos' -H 'Content-Type: application/json' -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 5, \"regex_include\": \"int-.*\", \"regex_exclude\": \"\"}'"
 echo ""
-echo "View repositories: curl -u admin:password '$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/' | jq '.results[] | {name, pulp_href}'"
+echo "  # Sync external repositories:"  
+echo "  curl -X POST 'http://localhost:8080/v1/pulp_servers/2/sync_repos' -H 'Content-Type: application/json' -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 5, \"regex_include\": \"ext-.*\", \"regex_exclude\": \"\"}'"
+echo ""
+echo "Monitor tasks: http://localhost:9181"
