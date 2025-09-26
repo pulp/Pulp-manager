@@ -7,16 +7,50 @@ PULP_SECONDARY="http://localhost:8001"
 PULP_USER="admin"
 PULP_PASS="password"
 
-echo "🚀 Setting up Pulp Demo Environment"
-echo "=================================="
+echo "Setting up Pulp Demo Environment"
+echo "================================="
+
+# Function to check if a server is running and accessible
+check_server_running() {
+    local server="$1"
+    local server_name="$2"
+    
+    echo "Checking if $server_name is running..."
+    
+    if ! curl -s --connect-timeout 5 "$server/pulp/api/v3/status/" > /dev/null 2>&1; then
+        echo "ERROR: $server_name at $server is not accessible!"
+        echo ""
+        echo "To fix this issue:"
+        echo "  1. Start the Pulp cluster: make run-cluster"
+        echo "  2. Wait for services to be healthy (may take 1-2 minutes)"
+        echo "  3. Then run: make setup-demo"
+        echo ""
+        return 1
+    fi
+    
+    echo "$server_name is running and accessible"
+    return 0
+}
 
 # Function to check if a resource exists by name
 check_exists() {
     local url="$1"
     local name="$2"
-    local response=$(curl -s -u $PULP_USER:$PULP_PASS "$url?name=$name")
-    local count=$(echo "$response" | jq -r '.count // 0')
-    [ "$count" -gt 0 ]
+    local response=$(curl -s -u $PULP_USER:$PULP_PASS "$url?name=$name" 2>/dev/null)
+    
+    # Check if curl failed or returned empty response
+    if [ -z "$response" ] || ! echo "$response" | jq . > /dev/null 2>&1; then
+        echo "Warning: Could not connect to server or invalid JSON response"
+        return 1
+    fi
+    
+    local count=$(echo "$response" | jq -r '.count // 0' 2>/dev/null)
+    # Ensure count is a valid number
+    if [[ "$count" =~ ^[0-9]+$ ]] && [ "$count" -gt 0 ]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Function to wait for task completion
@@ -149,6 +183,11 @@ update_pulp_manager_db() {
         echo "    Available repos: $(echo "$pm_repo_response" | jq -r '.items[].name' | tr '\n' ' ')"
     fi
 }
+
+echo ""
+echo "Checking server connectivity..."
+check_server_running "$PULP_PRIMARY" "Pulp Primary"
+check_server_running "$PULP_SECONDARY" "Pulp Secondary"
 
 echo ""
 echo "Step 1: Setting up Primary Server Repositories"
