@@ -189,6 +189,45 @@ echo "Checking server connectivity..."
 check_server_running "$PULP_PRIMARY" "Pulp Primary"
 check_server_running "$PULP_SECONDARY" "Pulp Secondary"
 
+# Function to register signing service in Pulp
+register_signing_service() {
+    local container_name="$1"
+    local server_name="$2"
+    
+    echo "  Checking if signing service exists on $server_name..."
+    
+    # Check if signing service already exists in the database
+    existing=$(docker exec $container_name bash -c "pulpcore-manager shell -c \"from pulpcore.app.models import SigningService; print(SigningService.objects.filter(name='deb_signing_service').exists())\"" 2>/dev/null)
+    
+    if [ "$existing" = "True" ]; then
+        echo "  Signing service 'deb_signing_service' already exists on $server_name"
+    else
+        echo "  Creating signing service 'deb_signing_service' on $server_name..."
+        
+        # Get the GPG key ID from the mounted keyring
+        key_id=$(docker exec $container_name bash -c "GNUPGHOME=/opt/gpg gpg --list-secret-keys --with-colons 2>/dev/null | grep '^sec:' | cut -d: -f5 | head -1")
+        
+        if [ -n "$key_id" ]; then
+            # Add the signing service using the management command
+            docker exec $container_name bash -c "pulpcore-manager add-signing-service \
+                'deb_signing_service' \
+                '/opt/scripts/deb_sign.sh' \
+                '$key_id' \
+                --gnupghome /opt/gpg" 2>/dev/null && \
+            echo "  Signing service created successfully on $server_name" || \
+            echo "  Failed to create signing service on $server_name"
+        else
+            echo "  No GPG key found in /opt/gpg on $server_name"
+        fi
+    fi
+}
+
+echo ""
+echo "Setting up signing services..."
+echo "=============================="
+register_signing_service "docker-pulp-primary-1" "Pulp Primary"
+register_signing_service "docker-pulp-secondary-1" "Pulp Secondary"
+
 echo ""
 echo "Step 1: Setting up Primary Server Repositories"
 echo "=============================================="
@@ -196,11 +235,11 @@ echo "=============================================="
 # Setup external repo on primary with upstream remote
 setup_repo_and_remote "$PULP_PRIMARY" "ext-small-repo" "External small Debian testing repository" \
     "debian-testing-remote" "http://deb.debian.org/debian/" "testing" "main" "amd64"
-eval $(echo "REPO_HREF_ext_small_repo=$REPO_HREF")
+EXT_REPO_HREF=$REPO_HREF
 
 # Setup internal repo on primary (no remote needed)
 setup_repo_and_remote "$PULP_PRIMARY" "int-demo-packages" "Internal demo repository" "" "" "" "" ""
-eval $(echo "REPO_HREF_int_demo_packages=$REPO_HREF")
+INT_REPO_HREF=$REPO_HREF
 
 echo ""
 echo "Step 2: Setting up Secondary Server Repositories"
@@ -218,8 +257,14 @@ echo "Step 3: Uploading Demo Package to Internal Repository"
 echo "====================================================="
 
 # Check if package already exists in repository
-INT_REPO_CONTENT=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY${INT_REPO_HREF}versions/1/content/")
-HELLO_PKG_EXISTS=$(echo "$INT_REPO_CONTENT" | jq -r '.results[] | select(.summary and (.summary | contains("hello"))) | .pulp_href' | head -n1)
+# First get the latest version href
+LATEST_VERSION=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY${INT_REPO_HREF}versions/?limit=1&ordering=-number" | jq -r '.results[0].pulp_href' 2>/dev/null)
+if [ -n "$LATEST_VERSION" ] && [ "$LATEST_VERSION" != "null" ]; then
+    INT_REPO_CONTENT=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY${LATEST_VERSION}content/?limit=100")
+    HELLO_PKG_EXISTS=$(echo "$INT_REPO_CONTENT" | jq -r '.results[] | select(.relative_path and (.relative_path | contains("hello"))) | .pulp_href' 2>/dev/null | head -n1)
+else
+    HELLO_PKG_EXISTS=""
+fi
 
 if [ -n "$HELLO_PKG_EXISTS" ] && [ "$HELLO_PKG_EXISTS" != "null" ]; then
     echo "   Demo package already exists in repository"

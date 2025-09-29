@@ -60,6 +60,6 @@ PULP_DEFAULT_ADMIN_PASSWORD = "password"
 # Signing service configuration
 SIGNING_SERVICES = {
     'deb_signing_service': {
-        'SCRIPT': '/opt/deb_sign_script.sh',
+        'SCRIPT': '/opt/scripts/deb_sign.sh',
     }
 }

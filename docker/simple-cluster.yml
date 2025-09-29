@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   pulp-primary:
     image: pulp/pulp:stable
@@ -139,6 +137,23 @@ services:
       - pulp-manager-api
     networks:
       - pulp-net
+
+  deb-signing-service:
+    image: python:3.11-slim
+    command: >
+      sh -c "apt-get update && apt-get install -y gnupg &&
+             pip install flask &&
+             python /app/signing_service.py"
+    volumes:
+      - "../assets/scripts/signing_service.py:/app/signing_service.py:z"
+      - "../assets/keys/gpg:/app/gpg:z"
+    environment:
+      - GNUPGHOME=/app/gpg
+    networks:
+      - pulp-net
+    ports:
+      - "8082:8080"
+    restart: unless-stopped
 
 networks:
   pulp-net:
