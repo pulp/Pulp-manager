@@ -130,14 +130,15 @@ components:
 
 1. **Using DevContainers (Recommended)**
    ```bash
-   # Open in VS Code and select "Reopen in Container"
-   # Or use the CLI:
+   # Open in VS Code and select action "Dev Containers: Reopen in Container"
+   # Or use the Dev Container CLI:
    devcontainer up --workspace-folder .
    ```
 
 2. **Manual Setup**
    ```bash
-   make run-pulp-manager
+   make run-cluster
+   make setup-cluster
    ```
 
 For detailed development setup, see the [Development

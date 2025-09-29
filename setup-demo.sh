@@ -65,20 +65,20 @@ wait_for_task() {
         
         case "$state" in
             "completed")
-                echo "  ✅ Task completed successfully"
+                echo "   Task completed successfully"
                 return 0
                 ;;
             "failed")
-                echo "  ❌ Task failed!"
+                echo "   Task failed!"
                 echo "  Error: $(echo "$task_result" | jq -r '.error.description // .error')"
                 return 1
                 ;;
             "running"|"waiting")
-                echo "  ⏳ Task $state, waiting..."
+                echo "   Task $state, waiting..."
                 sleep 2
                 ;;
             *)
-                echo "  ⏳ Task in state: $state, waiting..."
+                echo "   Task in state: $state, waiting..."
                 sleep 2
                 ;;
         esac
@@ -96,31 +96,31 @@ setup_repo_and_remote() {
     local components="$7"
     local architectures="$8"
 
-    echo "  📦 Setting up $repo_name on $(basename $server)..."
+    echo "   Setting up $repo_name on $(basename $server)..."
 
     # Create repository
     if check_exists "$server/pulp/api/v3/repositories/deb/apt/" "$repo_name"; then
-        echo "    ✅ Repository '$repo_name' already exists"
+        echo "     Repository '$repo_name' already exists"
         REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$server/pulp/api/v3/repositories/deb/apt/?name=$repo_name")
         REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.results[0].pulp_href')
     else
-        echo "    📦 Creating repository '$repo_name'..."
+        echo "     Creating repository '$repo_name'..."
         REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$server/pulp/api/v3/repositories/deb/apt/" \
             -H "Content-Type: application/json" \
             -d "{\"name\": \"$repo_name\", \"description\": \"$repo_desc\"}")
         REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.pulp_href')
-        echo "    ✅ Repository created: $REPO_HREF"
+        echo "     Repository created: $REPO_HREF"
     fi
 
     # Only create remotes and associate them for secondary server (when remote_url is provided)
     if [ -n "$remote_url" ]; then
         # Create remote
         if check_exists "$server/pulp/api/v3/remotes/deb/apt/" "$remote_name"; then
-            echo "    ✅ Remote '$remote_name' already exists"
+            echo "     Remote '$remote_name' already exists"
             REMOTE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$server/pulp/api/v3/remotes/deb/apt/?name=$remote_name")
             REMOTE_HREF=$(echo "$REMOTE_RESPONSE" | jq -r '.results[0].pulp_href')
         else
-            echo "    🌐 Creating remote '$remote_name'..."
+            echo "     Creating remote '$remote_name'..."
             remote_data="{\"name\": \"$remote_name\", \"url\": \"$remote_url\", \"distributions\": \"$distributions\""
             if [ -n "$components" ]; then
                 remote_data="$remote_data, \"components\": \"$components\""
@@ -134,11 +134,11 @@ setup_repo_and_remote() {
                 -H "Content-Type: application/json" \
                 -d "$remote_data")
             REMOTE_HREF=$(echo "$REMOTE_RESPONSE" | jq -r '.pulp_href')
-            echo "    ✅ Remote created: $REMOTE_HREF"
+            echo "     Remote created: $REMOTE_HREF"
         fi
 
         # Associate remote with repository
-        echo "    🔗 Associating remote with repository..."
+        echo "     Associating remote with repository..."
         REPO_UPDATE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X PATCH "$server$REPO_HREF" \
             -H "Content-Type: application/json" \
             -d "{\"remote\": \"$REMOTE_HREF\"}")
@@ -164,7 +164,7 @@ update_pulp_manager_db() {
     local repo_name="$2" 
     local remote_href="$3"
     
-    echo "  🔄 Updating pulp-manager database for $repo_name on server $server_id..."
+    echo "  Updating pulp-manager database for $repo_name on server $server_id..."
     
     # Wait for pulp-manager to discover the repository first
     sleep 5
@@ -177,9 +177,9 @@ update_pulp_manager_db() {
         # Update the database directly
         docker exec docker-mariadb-1 mariadb -u pulp-manager -ppulp-manager pulp_manager \
             -e "UPDATE pulp_server_repos SET remote_href = '$remote_href' WHERE id = $pm_repo_id;"
-        echo "    ✅ Updated pulp-manager database: repo ID $pm_repo_id -> $remote_href"
+        echo "     Updated pulp-manager database: repo ID $pm_repo_id -> $remote_href"
     else
-        echo "    ⚠️  Could not find repo $repo_name in pulp-manager database for server $server_id"
+        echo "      Could not find repo $repo_name in pulp-manager database for server $server_id"
         echo "    Available repos: $(echo "$pm_repo_response" | jq -r '.items[].name' | tr '\n' ' ')"
     fi
 }
@@ -222,9 +222,9 @@ INT_REPO_CONTENT=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY${INT_REPO_HRE
 HELLO_PKG_EXISTS=$(echo "$INT_REPO_CONTENT" | jq -r '.results[] | select(.summary and (.summary | contains("hello"))) | .pulp_href' | head -n1)
 
 if [ -n "$HELLO_PKG_EXISTS" ] && [ "$HELLO_PKG_EXISTS" != "null" ]; then
-    echo "  ✅ Demo package already exists in repository"
+    echo "   Demo package already exists in repository"
 else
-    echo "  📤 Uploading demo package..."
+    echo "   Uploading demo package..."
     CONTENT_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/content/deb/packages/" \
         -H "Content-Type: multipart/form-data" \
         -F "file=@assets/packages/hello_2.10-2_amd64.deb")
@@ -235,10 +235,10 @@ else
     # Get content href from completed task
     TASK_RESULT=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY$UPLOAD_TASK_HREF")
     CONTENT_HREF=$(echo "$TASK_RESULT" | jq -r '.created_resources[0]')
-    echo "  📦 Content created: $CONTENT_HREF"
+    echo "   Content created: $CONTENT_HREF"
     
     # Add content to repository
-    echo "  ➕ Adding content to repository..."
+    echo "   Adding content to repository..."
     MODIFY_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY${INT_REPO_HREF}modify/" \
         -H "Content-Type: application/json" \
         -d "{\"add_content_units\": [\"$CONTENT_HREF\"]}")
@@ -252,7 +252,7 @@ echo "Step 4: Creating Publications"
 echo "============================="
 
 # Create publication for external repository
-echo "  📰 Creating publication for ext-small-repo..."
+echo "   Creating publication for ext-small-repo..."
 EXT_PUB_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/publications/deb/apt/" \
     -H "Content-Type: application/json" \
     -d "{\"repository\": \"$EXT_REPO_HREF\"}")
@@ -264,14 +264,14 @@ if echo "$EXT_PUB_RESPONSE" | jq -e '.task' > /dev/null; then
     # Get publication href
     PUB_TASK_RESULT=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY$EXT_PUB_TASK")
     EXT_PUB_HREF=$(echo "$PUB_TASK_RESULT" | jq -r '.created_resources[0]')
-    echo "  ✅ External publication created: $EXT_PUB_HREF"
+    echo "   External publication created: $EXT_PUB_HREF"
 else
     EXT_PUB_HREF=$(echo "$EXT_PUB_RESPONSE" | jq -r '.pulp_href')
-    echo "  ✅ External publication exists: $EXT_PUB_HREF"
+    echo "   External publication exists: $EXT_PUB_HREF"
 fi
 
 # Create publication for internal repository
-echo "  📰 Creating publication for int-demo-packages..."
+echo "   Creating publication for int-demo-packages..."
 INT_PUB_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/publications/deb/apt/" \
     -H "Content-Type: application/json" \
     -d "{\"repository\": \"$INT_REPO_HREF\"}")
@@ -283,10 +283,10 @@ if echo "$INT_PUB_RESPONSE" | jq -e '.task' > /dev/null; then
     # Get publication href
     PUB_TASK_RESULT=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY$INT_PUB_TASK")
     INT_PUB_HREF=$(echo "$PUB_TASK_RESULT" | jq -r '.created_resources[0]')
-    echo "  ✅ Internal publication created: $INT_PUB_HREF"
+    echo "   Internal publication created: $INT_PUB_HREF"
 else
     INT_PUB_HREF=$(echo "$INT_PUB_RESPONSE" | jq -r '.pulp_href')
-    echo "  ✅ Internal publication exists: $INT_PUB_HREF"
+    echo "   Internal publication exists: $INT_PUB_HREF"
 fi
 
 echo ""
@@ -295,9 +295,9 @@ echo "=============================="
 
 # Create distribution for external repository
 if check_exists "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" "ext-small-repo"; then
-    echo "  ✅ Distribution 'ext-small-repo' already exists"
+    echo "   Distribution 'ext-small-repo' already exists"
 else
-    echo "  🌐 Creating distribution for ext-small-repo..."
+    echo "   Creating distribution for ext-small-repo..."
     EXT_DIST_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" \
         -H "Content-Type: application/json" \
         -d "{
@@ -310,14 +310,14 @@ else
         EXT_DIST_TASK=$(echo "$EXT_DIST_RESPONSE" | jq -r '.task')
         wait_for_task "$EXT_DIST_TASK" "$PULP_PRIMARY"
     fi
-    echo "  ✅ External distribution created"
+    echo "   External distribution created"
 fi
 
 # Create distribution for internal repository
 if check_exists "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" "int-demo-packages"; then
-    echo "  ✅ Distribution 'int-demo-packages' already exists"
+    echo "   Distribution 'int-demo-packages' already exists"
 else
-    echo "  🌐 Creating distribution for int-demo-packages..."
+    echo "   Creating distribution for int-demo-packages..."
     INT_DIST_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" \
         -H "Content-Type: application/json" \
         -d "{
@@ -330,7 +330,7 @@ else
         INT_DIST_TASK=$(echo "$INT_DIST_RESPONSE" | jq -r '.task')
         wait_for_task "$INT_DIST_TASK" "$PULP_PRIMARY"
     fi
-    echo "  ✅ Internal distribution created"
+    echo "   Internal distribution created"
 fi
 
 echo ""
@@ -342,12 +342,12 @@ update_pulp_manager_db "2" "int-demo-packages" "$REMOTE_HREF_int_demo_packages"
 update_pulp_manager_db "2" "ext-small-repo" "$REMOTE_HREF_ext_small_repo"
 
 echo ""
-echo "🎉 Demo Setup Complete!"
+echo " Demo Setup Complete!"
 echo "======================"
 echo ""
 echo "Available repositories:"
-echo "  📦 ext-small-repo (external): $PULP_PRIMARY/pulp/content/ext-small-repo/"
-echo "  📦 int-demo-packages (internal): $PULP_PRIMARY/pulp/content/int-demo-packages/"
+echo "   ext-small-repo (external): $PULP_PRIMARY/pulp/content/ext-small-repo/"
+echo "   int-demo-packages (internal): $PULP_PRIMARY/pulp/content/int-demo-packages/"
 echo ""
 echo "Pulp Manager sync commands:"
 echo "  # Sync internal repositories:"

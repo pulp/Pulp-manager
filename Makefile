@@ -13,7 +13,6 @@ h help:
 	"l|lint"        "Run lint" \
 	"c|cover"       "Run coverage for all tests" \
 	"venv"          "Create virtualenv" \
-	"bdist"         "Create wheel file" \
 	"clean"         "Clean workspace" \
         "setup-keys"    "Generates keys for use in local cluster" \
 	"run-pulp3"	"Start Pulp 3 locally with Docker Compose" \
@@ -26,12 +25,26 @@ l lint: venv
 	@echo "# pylint"; \
 	./venv/bin/pylint --rcfile ./pylint.rc  pulp_manager/
 
+check-devcontainer:
+	@if [ -z "$$Is_local" ] && [ -z "$$DEVCONTAINER" ]; then \
+		echo "ERROR: Tests must be run in devcontainer environment!"; \
+		echo ""; \
+		echo "To run tests:"; \
+		echo "  1. Open VS Code"; \
+		echo "  2. Use Command Palette (Cmd/Ctrl+Shift+P)"; \
+		echo "  3. Select 'Dev Containers: Reopen in Container'"; \
+		echo "  4. Wait for container to build"; \
+		echo "  5. Run: make t"; \
+		echo ""; \
+		exit 1; \
+	fi
+
 .PHONY : t test
-t test: venv
+t test: venv check-devcontainer
 	@./venv/bin/pytest -v
 
 .PHONY : c cover
-c cover: venv
+c cover: venv check-devcontainer
 	@. venv/bin/activate; \
 	coverage erase; \
 	coverage run --source=. --omit=pulp_manager/tests/unit/mock_repository.py -m pytest -v && coverage report --fail-under=90; \
