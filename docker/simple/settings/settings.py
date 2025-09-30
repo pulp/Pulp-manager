@@ -12,6 +12,9 @@ DATABASES = {
     }
 }
 
+# Database encryption key
+DB_ENCRYPTION_KEY = "/etc/pulp/database_fields.symmetric.key"
+
 # Cache settings for performance
 CACHE_ENABLED = True
 
