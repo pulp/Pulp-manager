@@ -26,7 +26,8 @@ or Jenkins.
 
 ## Core Team
 
-This project is maintained by G-Research. For details on our team and
+This project originated at [G-Research](https://github.com/G-Research)
+but is now owned by the Pulp project. For details on our team and
 roles, please see the [MAINTAINERS.md](MAINTAINERS.md) file.
 
 ## Documentation Index
@@ -128,14 +129,14 @@ components:
 
 ## Quick Start
 
-1. **Using DevContainers (Recommended)**
+1. **For Development, use Dev Container**
    ```bash
    # Open in VS Code and select action "Dev Containers: Reopen in Container"
    # Or use the Dev Container CLI:
    devcontainer up --workspace-folder .
    ```
 
-2. **Manual Setup**
+2. **For Demo cluster, use make targets to setup a Docker Compose environment**
    ```bash
    make run-cluster
    make setup-cluster
