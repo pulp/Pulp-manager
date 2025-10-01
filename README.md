@@ -169,6 +169,7 @@ default_domain=example.com
 jwt_algorithm=HS256
 jwt_token_lifetime_mins=480
 admin_group=pulpmaster-rw
+require_jwt_auth=true
 
 [pulp]
 deb_signing_service=pulp_deb
@@ -222,6 +223,9 @@ Defines authentication allowed against the API
 - `jwt_token_lifetime_mins`: Number of minutes JWT is valid for
 - `admin_group`: Directory group user must be a member of to carry out
   priveldged actions agains the API
+- `require_jwt_auth`: Boolean whether to require JWT authentication for
+  protected API endpoints. Set to false for local development environments
+  where authentication is not needed. Defaults to true
 
 ### pulp
 

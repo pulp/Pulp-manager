@@ -33,6 +33,19 @@ from pulp_manager.app.job_manager import JobManager
 from pulp_manager.app.services import PulpManager
 
 
+# Helper function to conditionally apply JWT authentication
+def get_jwt_dependencies():
+    """Returns JWT dependencies if required by configuration, otherwise empty list"""
+    if "auth" in CONFIG and "require_jwt_auth" in CONFIG["auth"]:
+        require_jwt = CONFIG["auth"]["require_jwt_auth"]
+        if isinstance(require_jwt, str):
+            require_jwt = require_jwt.lower() == "true"
+        if not require_jwt:
+            return []
+    # Default to requiring JWT auth (backward compatible)
+    return [Depends(JWTBearer(allowed_groups=CONFIG["auth"]["admin_group"].split(",")))]
+
+
 pulp_server_v1_router = APIRouter(
     prefix="/v1/pulp_servers",
     tags=["pulp_servers"],
@@ -329,9 +342,7 @@ def get_repo_groups_by_group_id(
     name="pulp_servers_v1:snapshot_repos",
     response_model=Task,
     status_code=201,
-    dependencies=[
-        Depends(JWTBearer(allowed_groups=CONFIG["auth"]["admin_group"].split(",")))
-    ],
+    dependencies=get_jwt_dependencies(),
 )
 def snapshot_repos(
     id: int, snapshot_config: PulpServerSnapshotConfig, db: get_session = Depends()
@@ -357,6 +368,7 @@ def snapshot_repos(
     name="pulp_servers_v1:sync_repos",
     response_model=Task,
     status_code=201,
+    dependencies=get_jwt_dependencies(),
 )
 def sync_repos(id: int, sync_config: PulpServerSyncConfig, db: get_session = Depends()):
     """Queues a repo sync job against the specified pulp server"""
@@ -382,9 +394,7 @@ def sync_repos(id: int, sync_config: PulpServerSyncConfig, db: get_session = Dep
     name="pulp_servers_v1:remove_repos",
     response_model=Task,
     status_code=201,
-    dependencies=[
-        Depends(JWTBearer(allowed_groups=CONFIG["auth"]["admin_group"].split(",")))
-    ],
+    dependencies=get_jwt_dependencies(),
 )
 def remove_repos(
     id: int, removal_config: PulpServerRepoRemovalConfig, db: get_session = Depends()

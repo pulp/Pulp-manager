@@ -98,16 +98,30 @@ setup_repo_and_remote() {
 
     echo "   Setting up $repo_name on $(basename $server)..."
 
-    # Create repository
+    # Create repository with proper description format for Pulp Manager
+    # The base_url in description should be just the repo name (used for base_path)
+    # Not the full remote URL
+    local base_url="$repo_name"
+    local full_description="base_url: $base_url"
+    if [ -n "$repo_desc" ]; then
+        full_description="$full_description\ndescription: $repo_desc"
+    fi
+    
     if check_exists "$server/pulp/api/v3/repositories/deb/apt/" "$repo_name"; then
         echo "     Repository '$repo_name' already exists"
         REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$server/pulp/api/v3/repositories/deb/apt/?name=$repo_name")
         REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.results[0].pulp_href')
+        
+        # Update the description to have proper format
+        echo "     Updating repository description..."
+        curl -s -u $PULP_USER:$PULP_PASS -X PATCH "$server$REPO_HREF" \
+            -H "Content-Type: application/json" \
+            -d "{\"description\": \"$full_description\"}" > /dev/null
     else
         echo "     Creating repository '$repo_name'..."
         REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$server/pulp/api/v3/repositories/deb/apt/" \
             -H "Content-Type: application/json" \
-            -d "{\"name\": \"$repo_name\", \"description\": \"$repo_desc\"}")
+            -d "{\"name\": \"$repo_name\", \"description\": \"$full_description\"}")
         REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.pulp_href')
         echo "     Repository created: $REPO_HREF"
     fi
@@ -190,6 +204,23 @@ check_server_running "$PULP_PRIMARY" "Pulp Primary"
 check_server_running "$PULP_SECONDARY" "Pulp Secondary"
 
 # Function to register signing service in Pulp
+assign_signing_service_to_repo() {
+    local server="$1"
+    local repo_href="$2"
+    local repo_name="$3"
+    
+    # Get the signing service href for this server
+    local signing_service_href=$(curl -s -u $PULP_USER:$PULP_PASS "$server/pulp/api/v3/signing-services/?name=deb_signing_service" | jq -r '.results[0].pulp_href')
+    
+    if [ -n "$signing_service_href" ] && [ "$signing_service_href" != "null" ]; then
+        echo "     Assigning signing service to $repo_name..."
+        curl -s -u $PULP_USER:$PULP_PASS -X PATCH "$server$repo_href" \
+            -H "Content-Type: application/json" \
+            -d "{\"signing_service\": \"$signing_service_href\"}" > /dev/null
+        echo "     Signing service assigned: $signing_service_href"
+    fi
+}
+
 register_signing_service() {
     local container_name="$1"
     local server_name="$2"
@@ -240,6 +271,8 @@ EXT_REPO_HREF=$REPO_HREF
 # Setup internal repo on primary (no remote needed)
 setup_repo_and_remote "$PULP_PRIMARY" "int-demo-packages" "Internal demo repository" "" "" "" "" ""
 INT_REPO_HREF=$REPO_HREF
+# Assign signing service to internal repo on primary
+assign_signing_service_to_repo "$PULP_PRIMARY" "$INT_REPO_HREF" "int-demo-packages"
 
 echo ""
 echo "Step 2: Setting up Secondary Server Repositories"
@@ -248,6 +281,9 @@ echo "==============================================="
 # Setup repos on secondary that sync from primary
 setup_repo_and_remote "$PULP_SECONDARY" "int-demo-packages" "Internal demo packages synced from primary" \
     "int-demo-remote" "http://docker-pulp-primary-1/pulp/content/int-demo-packages/" "stable" "" ""
+SECONDARY_INT_REPO_HREF=$REPO_HREF
+# Assign signing service to internal repo on secondary
+assign_signing_service_to_repo "$PULP_SECONDARY" "$SECONDARY_INT_REPO_HREF" "int-demo-packages"
 
 setup_repo_and_remote "$PULP_SECONDARY" "ext-small-repo" "External small repo synced from primary" \
     "ext-small-remote" "http://docker-pulp-primary-1/pulp/content/ext-small-repo/" "testing" "main" "amd64"

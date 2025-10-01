@@ -776,7 +776,7 @@ class PulpManager(PulpServerService):
         :return: PulpServerRepo
         """
 
-        if description is None or "base_url" not in description:
+        if "base_url" not in description:
             raise PulpManagerValueError(
                 f"Could not determine base_url for {name} from description"
             )
@@ -1165,7 +1165,7 @@ class PulpManager(PulpServerService):
 
         if isinstance(source_repo, DebRepository):
             distributions = self._get_apt_distributions_from_url(
-                url
+                source_distribution.base_url
             )
             if len(distributions) == 0:
 #                raise PulpManagerValueError(
@@ -1179,14 +1179,9 @@ class PulpManager(PulpServerService):
 
         log.debug(f"create/update repo source {source_repo.name} URL {url}")
 
-        # Create description string in the format expected by create_or_update_repository
-        description_str = f"base_url: {url}"
-        if source_repo.description:
-            description_str += f"\ndescription: {source_repo.description}"
-            
         self.create_or_update_repository(
             name=source_repo.name,
-            description=description_str,
+            description=source_repo.description,
             repo_type=get_repo_type_from_href(source_repo.pulp_href),
             url=url,
             distributions=" ".join(distributions) if distributions else None,

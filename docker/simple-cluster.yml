@@ -10,7 +10,8 @@ services:
       - "./simple/pulp-primary/storage:/var/lib/pulp"
       - "./simple/pulp-primary/pgsql:/var/lib/pgsql"
       - "./simple/pulp-primary/containers:/var/lib/containers"
-      - "./simple/settings:/etc/pulp:z"
+      - "./simple/settings/settings-primary.py:/etc/pulp/settings.py:z"
+      - "../assets/certs/database_fields.symmetric.key:/etc/pulp/database_fields.symmetric.key:z"
       - "../assets/scripts:/opt/scripts:z"
       - "../assets/keys/gpg:/opt/gpg:z"
     devices:
@@ -29,7 +30,8 @@ services:
       - "./simple/pulp-secondary/storage:/var/lib/pulp"
       - "./simple/pulp-secondary/pgsql:/var/lib/pgsql"
       - "./simple/pulp-secondary/containers:/var/lib/containers"
-      - "./simple/settings:/etc/pulp:z"
+      - "./simple/settings/settings-secondary.py:/etc/pulp/settings.py:z"
+      - "../assets/certs/database_fields.symmetric.key:/etc/pulp/database_fields.symmetric.key:z"
       - "../assets/scripts:/opt/scripts:z"
       - "../assets/keys/gpg:/opt/gpg:z"
     devices:
