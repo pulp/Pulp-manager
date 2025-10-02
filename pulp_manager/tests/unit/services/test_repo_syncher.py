@@ -455,7 +455,7 @@ class TestRepoSyncher:
         mock_get_remote.return_value = RpmRemote(**{
             "pulp_href": "/pulp/api/v3/remotes/rpm/rpm/123",
             "name": "test-rpm",
-            "url": "https://pulp.example.com/",
+            "url": "https://pulp-primary/",
             "policy": "immediate"
         })
 
