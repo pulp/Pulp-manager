@@ -122,8 +122,8 @@ register_signing_service() {
 echo ""
 echo "Setting up signing services..."
 echo "=============================="
-register_signing_service "docker-pulp-primary-1" "Pulp Primary"
-register_signing_service "docker-pulp-secondary-1" "Pulp Secondary"
+register_signing_service "demo-pulp-primary-1" "Pulp Primary"
+register_signing_service "demo-pulp-secondary-1" "Pulp Secondary"
 
 echo ""
 echo "Step 1: Getting Repository References"

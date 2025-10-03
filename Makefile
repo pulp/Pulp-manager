@@ -78,27 +78,27 @@ setup-network:
 
 setup-keys:
 	@echo "Checking for Pulp encryption keys..."
-	@mkdir -p assets/certs assets/keys assets/nginx-conf
-	@if [ ! -f assets/certs/database_fields.symmetric.key ]; then \
+	@mkdir -p demo/assets/certs demo/assets/keys demo/assets/nginx-conf
+	@if [ ! -f demo/assets/certs/database_fields.symmetric.key ]; then \
 		echo "Generating database encryption key..."; \
-		openssl rand -base64 32 > assets/certs/database_fields.symmetric.key; \
+		openssl rand -base64 32 > demo/assets/certs/database_fields.symmetric.key; \
 		echo "Database encryption key created."; \
 	else \
 		echo "Database encryption key already exists."; \
 	fi
-	@if [ ! -f assets/keys/container_auth_private_key.pem ]; then \
+	@if [ ! -f demo/assets/keys/container_auth_private_key.pem ]; then \
 		echo "Generating container auth keys..."; \
-		openssl ecparam -genkey -name secp256r1 -noout -out assets/keys/container_auth_private_key.pem; \
-		openssl ec -in assets/keys/container_auth_private_key.pem -pubout -out assets/keys/container_auth_public_key.pem; \
+		openssl ecparam -genkey -name secp256r1 -noout -out demo/assets/keys/container_auth_private_key.pem; \
+		openssl ec -in demo/assets/keys/container_auth_private_key.pem -pubout -out demo/assets/keys/container_auth_public_key.pem; \
 		echo "Container auth keys created."; \
 	else \
 		echo "Container auth keys already exist."; \
 	fi
-	@mkdir -p assets/keys/gpg
-	@if [ ! -f assets/keys/gpg/public.key ] || [ ! -s assets/keys/gpg/public.key ]; then \
+	@mkdir -p demo/assets/keys/gpg
+	@if [ ! -f demo/assets/keys/gpg/public.key ] || [ ! -s demo/assets/keys/gpg/public.key ]; then \
 		echo "Generating GPG signing keys..."; \
-		rm -rf assets/keys/gpg/*; \
-		chmod 700 assets/keys/gpg; \
+		rm -rf demo/assets/keys/gpg/*; \
+		chmod 700 demo/assets/keys/gpg; \
 		echo "Key-Type: RSA" > /tmp/gpg-batch-config; \
 		echo "Key-Length: 2048" >> /tmp/gpg-batch-config; \
 		echo "Name-Real: Demo Signing Service" >> /tmp/gpg-batch-config; \
@@ -106,8 +106,8 @@ setup-keys:
 		echo "Expire-Date: 0" >> /tmp/gpg-batch-config; \
 		echo "%no-protection" >> /tmp/gpg-batch-config; \
 		echo "%commit" >> /tmp/gpg-batch-config; \
-		GNUPGHOME=assets/keys/gpg gpg --batch --no-default-keyring --keyring assets/keys/gpg/pubring.kbx --gen-key /tmp/gpg-batch-config; \
-		GNUPGHOME=assets/keys/gpg gpg --no-default-keyring --keyring assets/keys/gpg/pubring.kbx --armor --export > assets/keys/gpg/public.key; \
+		GNUPGHOME=demo/assets/keys/gpg gpg --batch --no-default-keyring --keyring demo/assets/keys/gpg/pubring.kbx --gen-key /tmp/gpg-batch-config; \
+		GNUPGHOME=demo/assets/keys/gpg gpg --no-default-keyring --keyring demo/assets/keys/gpg/pubring.kbx --armor --export > demo/assets/keys/gpg/public.key; \
 		rm /tmp/gpg-batch-config; \
 		echo "GPG signing keys created."; \
 	else \
@@ -116,5 +116,28 @@ setup-keys:
 
 .PHONY : setup-demo
 setup-demo:
-	@echo "Setting up complete demo environment..."
-	@./setup-demo.sh
+	@echo "Setting up demo environment..."
+	@docker run --rm \
+		--network pulp-net \
+		-v $(PWD)/demo/ansible:/ansible:ro \
+		-v $(PWD)/demo/assets:/assets:ro \
+		cytopia/ansible:latest \
+		sh -c "pip3 install -q 'pulp-glue>=0.29.0' 'pulp-glue-deb>=0.3.0,<0.4' 2>&1 && \
+		ansible-galaxy collection install pulp.squeezer 2>&1 | grep -v 'Installing' && \
+		ansible-playbook -i localhost, /ansible/playbook.yml"
+	@echo ""
+	@echo "Demo Setup Complete"
+	@echo "==================="
+	@echo ""
+	@echo "Available repositories:"
+	@echo "  - ext-small-repo (external): http://localhost:8000/pulp/content/ext-small-repo/"
+	@echo "  - int-demo-packages (internal): http://localhost:8000/pulp/content/int-demo-packages/"
+	@echo ""
+	@echo "Pulp Manager sync commands:"
+	@echo "  # Sync internal repositories:"
+	@echo "  curl -X POST 'http://localhost:8080/v1/pulp_servers/2/sync_repos' -H 'Content-Type: application/json' -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 5, \"regex_include\": \"int-.*\", \"regex_exclude\": \"\"}'"
+	@echo ""
+	@echo "  # Sync external repositories:"
+	@echo "  curl -X POST 'http://localhost:8080/v1/pulp_servers/2/sync_repos' -H 'Content-Type: application/json' -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 5, \"regex_include\": \"ext-.*\", \"regex_exclude\": \"\"}'"
+	@echo ""
+	@echo "Monitor tasks: http://localhost:9181"

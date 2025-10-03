@@ -1,0 +1,196 @@
+---
+# Ansible playbook to set up Pulp demo environment
+# Replaces setup-demo.sh with infrastructure-as-code approach
+
+- name: Setup Pulp Demo Environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    pulp_primary_url: "http://demo-pulp-primary-1"
+    pulp_secondary_url: "http://demo-pulp-secondary-1"
+    pulp_username: "admin"
+    pulp_password: "password"
+    package_file: "/assets/packages/hello_2.10-2_amd64.deb"
+
+  tasks:
+    - name: Wait for Pulp Primary to be ready
+      pulp.squeezer.status:
+        pulp_url: "{{ pulp_primary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+      register: primary_status
+      until: primary_status is not failed
+      retries: 30
+      delay: 5
+
+    - name: Wait for Pulp Secondary to be ready
+      pulp.squeezer.status:
+        pulp_url: "{{ pulp_secondary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+      register: secondary_status
+      until: secondary_status is not failed
+      retries: 30
+      delay: 5
+
+    - name: Create int-demo-packages repository on primary
+      pulp.squeezer.deb_repository:
+        pulp_url: "{{ pulp_primary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+        name: "int-demo-packages"
+        description: "Internal demo repository\n base_url: int-demo-packages"
+        state: present
+      register: int_repo
+
+    - name: Create ext-small-repo repository on primary
+      pulp.squeezer.deb_repository:
+        pulp_url: "{{ pulp_primary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+        name: "ext-small-repo"
+        description: "External demo repository\n base_url: ext-small-repo"
+        state: present
+      register: ext_repo
+
+    - name: Get int-demo-packages repository details
+      pulp.squeezer.deb_repository:
+        pulp_url: "{{ pulp_primary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+        name: "int-demo-packages"
+        state: present
+      register: int_repo_info
+
+    - name: Check if demo package already exists
+      uri:
+        url: "{{ pulp_primary_url }}{{ int_repo_info.repository.latest_version_href }}content/?limit=100"
+        method: GET
+        force_basic_auth: true
+        url_username: "{{ pulp_username }}"
+        url_password: "{{ pulp_password }}"
+        status_code: [200, 404]
+      register: repo_content
+      when: int_repo_info.repository.latest_version_href is defined and int_repo_info.repository.latest_version_href != None
+
+    - name: Set package exists fact
+      set_fact:
+        package_exists: "{{ repo_content.json.results | selectattr('relative_path', 'defined') | selectattr('relative_path', 'search', 'hello') | list | length > 0 }}"
+      when: repo_content is defined and repo_content.json is defined and repo_content.status == 200
+
+    - name: Upload demo package
+      uri:
+        url: "{{ pulp_primary_url }}/pulp/api/v3/content/deb/packages/"
+        method: POST
+        body_format: form-multipart
+        body:
+          file:
+            filename: hello_2.10-2_amd64.deb
+            content: "{{ lookup('file', package_file) | b64encode }}"
+            mime_type: application/octet-stream
+        force_basic_auth: true
+        url_username: "{{ pulp_username }}"
+        url_password: "{{ pulp_password }}"
+        status_code: [201, 202]
+      register: upload_result
+      when: package_exists is not defined or not package_exists
+
+    - name: Wait for upload task to complete
+      pulp.squeezer.task:
+        pulp_url: "{{ pulp_primary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+        href: "{{ upload_result.json.task }}"
+      register: upload_task
+      until: upload_task.task.state == "completed"
+      retries: 30
+      delay: 2
+      when: upload_result is changed
+
+    - name: Get content href from task
+      set_fact:
+        content_href: "{{ upload_task.task.created_resources[0] }}"
+      when: upload_result is changed
+
+    - name: Add content to int-demo-packages repository
+      pulp.squeezer.deb_repository:
+        pulp_url: "{{ pulp_primary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+        name: "int-demo-packages"
+        state: present
+        content_units:
+          - "{{ content_href }}"
+      when: upload_result is changed
+
+    - name: Create publication for int-demo-packages
+      uri:
+        url: "{{ pulp_primary_url }}/pulp/api/v3/publications/deb/apt/"
+        method: POST
+        body_format: json
+        body:
+          repository: "{{ int_repo_info.repository.pulp_href }}"
+          simple: true
+        force_basic_auth: true
+        url_username: "{{ pulp_username }}"
+        url_password: "{{ pulp_password }}"
+        status_code: [201, 202]
+      register: int_publication_create
+
+    - name: Wait for publication task
+      uri:
+        url: "{{ pulp_primary_url }}{{ int_publication_create.json.task }}"
+        method: GET
+        force_basic_auth: true
+        url_username: "{{ pulp_username }}"
+        url_password: "{{ pulp_password }}"
+      register: publication_task
+      until: publication_task.json.state == "completed"
+      retries: 30
+      delay: 2
+      when: int_publication_create.json.task is defined
+
+    - name: Get publication href
+      set_fact:
+        int_publication_href: "{{ publication_task.json.created_resources[0] }}"
+      when: publication_task.json is defined
+
+    - name: Check if distribution exists
+      uri:
+        url: "{{ pulp_primary_url }}/pulp/api/v3/distributions/deb/apt/?name=int-demo-packages"
+        method: GET
+        force_basic_auth: true
+        url_username: "{{ pulp_username }}"
+        url_password: "{{ pulp_password }}"
+      register: dist_check
+
+    - name: Update existing distribution
+      uri:
+        url: "{{ pulp_primary_url }}{{ dist_check.json.results[0].pulp_href }}"
+        method: PATCH
+        body_format: json
+        body:
+          publication: "{{ int_publication_href }}"
+        force_basic_auth: true
+        url_username: "{{ pulp_username }}"
+        url_password: "{{ pulp_password }}"
+        status_code: [200, 202]
+      when: dist_check.json.count > 0
+
+    - name: Create new distribution
+      uri:
+        url: "{{ pulp_primary_url }}/pulp/api/v3/distributions/deb/apt/"
+        method: POST
+        body_format: json
+        body:
+          name: "int-demo-packages"
+          base_path: "int-demo-packages"
+          publication: "{{ int_publication_href }}"
+        force_basic_auth: true
+        url_username: "{{ pulp_username }}"
+        url_password: "{{ pulp_password }}"
+        status_code: [201, 202]
+      when: dist_check.json.count == 0
+
