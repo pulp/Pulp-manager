@@ -1,26 +1,12 @@
 __pycache__
 venv
 
-# Runtime data in docker/simple directories  
-docker/simple/pulp-primary/storage/*
-docker/simple/pulp-primary/pgsql/*
-docker/simple/pulp-primary/containers/*
-docker/simple/pulp-secondary/storage/*
-docker/simple/pulp-secondary/pgsql/*
-docker/simple/pulp-secondary/containers/*
-docker/simple/settings/certs/*
-
-# But keep the directories themselves
-!docker/simple/pulp-primary/storage/.gitkeep
-!docker/simple/pulp-primary/pgsql/.gitkeep
-!docker/simple/pulp-primary/containers/.gitkeep
-!docker/simple/pulp-secondary/storage/.gitkeep
-!docker/simple/pulp-secondary/pgsql/.gitkeep
-!docker/simple/pulp-secondary/containers/.gitkeep
-!docker/simple/settings/certs/.gitkeep
+# Demo environment runtime files
+demo/assets/certs/*
+!demo/assets/certs/.gitkeep
+demo/assets/keys/gpg/*
+!demo/assets/keys/.gitkeep
 
 # Other runtime files
-assets/certs/
-assets/keys/
 .coverage
 .claude/
