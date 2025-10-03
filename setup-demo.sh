@@ -14,9 +14,9 @@ echo "================================="
 check_server_running() {
     local server="$1"
     local server_name="$2"
-    
+
     echo "Checking if $server_name is running..."
-    
+
     if ! curl -s --connect-timeout 5 "$server/pulp/api/v3/status/" > /dev/null 2>&1; then
         echo "ERROR: $server_name at $server is not accessible!"
         echo ""
@@ -27,30 +27,9 @@ check_server_running() {
         echo ""
         return 1
     fi
-    
+
     echo "$server_name is running and accessible"
     return 0
-}
-
-# Function to check if a resource exists by name
-check_exists() {
-    local url="$1"
-    local name="$2"
-    local response=$(curl -s -u $PULP_USER:$PULP_PASS "$url?name=$name" 2>/dev/null)
-    
-    # Check if curl failed or returned empty response
-    if [ -z "$response" ] || ! echo "$response" | jq . > /dev/null 2>&1; then
-        echo "Warning: Could not connect to server or invalid JSON response"
-        return 1
-    fi
-    
-    local count=$(echo "$response" | jq -r '.count // 0' 2>/dev/null)
-    # Ensure count is a valid number
-    if [[ "$count" =~ ^[0-9]+$ ]] && [ "$count" -gt 0 ]; then
-        return 0
-    else
-        return 1
-    fi
 }
 
 # Function to wait for task completion
@@ -85,119 +64,6 @@ wait_for_task() {
     done
 }
 
-# Function to setup repository and remote on a server
-setup_repo_and_remote() {
-    local server="$1"
-    local repo_name="$2"
-    local repo_desc="$3"
-    local remote_name="$4"
-    local remote_url="$5"
-    local distributions="$6"
-    local components="$7"
-    local architectures="$8"
-
-    echo "   Setting up $repo_name on $(basename $server)..."
-
-    # Create repository with proper description format for Pulp Manager
-    # The base_url in description should be just the repo name (used for base_path)
-    # Not the full remote URL
-    local base_url="$repo_name"
-    local full_description="base_url: $base_url"
-    if [ -n "$repo_desc" ]; then
-        full_description="$full_description\ndescription: $repo_desc"
-    fi
-    
-    if check_exists "$server/pulp/api/v3/repositories/deb/apt/" "$repo_name"; then
-        echo "     Repository '$repo_name' already exists"
-        REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$server/pulp/api/v3/repositories/deb/apt/?name=$repo_name")
-        REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.results[0].pulp_href')
-        
-        # Update the description to have proper format
-        echo "     Updating repository description..."
-        curl -s -u $PULP_USER:$PULP_PASS -X PATCH "$server$REPO_HREF" \
-            -H "Content-Type: application/json" \
-            -d "{\"description\": \"$full_description\"}" > /dev/null
-    else
-        echo "     Creating repository '$repo_name'..."
-        REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$server/pulp/api/v3/repositories/deb/apt/" \
-            -H "Content-Type: application/json" \
-            -d "{\"name\": \"$repo_name\", \"description\": \"$full_description\"}")
-        REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.pulp_href')
-        echo "     Repository created: $REPO_HREF"
-    fi
-
-    # Only create remotes and associate them for secondary server (when remote_url is provided)
-    if [ -n "$remote_url" ]; then
-        # Create remote
-        if check_exists "$server/pulp/api/v3/remotes/deb/apt/" "$remote_name"; then
-            echo "     Remote '$remote_name' already exists"
-            REMOTE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$server/pulp/api/v3/remotes/deb/apt/?name=$remote_name")
-            REMOTE_HREF=$(echo "$REMOTE_RESPONSE" | jq -r '.results[0].pulp_href')
-        else
-            echo "     Creating remote '$remote_name'..."
-            remote_data="{\"name\": \"$remote_name\", \"url\": \"$remote_url\", \"distributions\": \"$distributions\""
-            if [ -n "$components" ]; then
-                remote_data="$remote_data, \"components\": \"$components\""
-            fi
-            if [ -n "$architectures" ]; then
-                remote_data="$remote_data, \"architectures\": \"$architectures\""
-            fi
-            remote_data="$remote_data}"
-            
-            REMOTE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$server/pulp/api/v3/remotes/deb/apt/" \
-                -H "Content-Type: application/json" \
-                -d "$remote_data")
-            REMOTE_HREF=$(echo "$REMOTE_RESPONSE" | jq -r '.pulp_href')
-            echo "     Remote created: $REMOTE_HREF"
-        fi
-
-        # Associate remote with repository
-        echo "     Associating remote with repository..."
-        REPO_UPDATE_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X PATCH "$server$REPO_HREF" \
-            -H "Content-Type: application/json" \
-            -d "{\"remote\": \"$REMOTE_HREF\"}")
-
-        if echo "$REPO_UPDATE_RESPONSE" | jq -e '.task' > /dev/null; then
-            TASK_HREF=$(echo "$REPO_UPDATE_RESPONSE" | jq -r '.task')
-            wait_for_task "$TASK_HREF" "$server"
-        fi
-    fi
-
-    echo "REPO_HREF_${repo_name//-/_}=$REPO_HREF"
-    
-    # Export variables for later use
-    export "REPO_HREF_${repo_name//-/_}"="$REPO_HREF"
-    if [ -n "$remote_url" ]; then
-        export "REMOTE_HREF_${repo_name//-/_}"="$REMOTE_HREF"
-    fi
-}
-
-# Function to update pulp-manager database with remote associations
-update_pulp_manager_db() {
-    local server_id="$1"
-    local repo_name="$2" 
-    local remote_href="$3"
-    
-    echo "  Updating pulp-manager database for $repo_name on server $server_id..."
-    
-    # Wait for pulp-manager to discover the repository first
-    sleep 5
-    
-    # Get the pulp-manager repo ID by querying repos for the server
-    local pm_repo_response=$(curl -s "http://localhost:8080/v1/pulp_servers/$server_id/repos")
-    local pm_repo_id=$(echo "$pm_repo_response" | jq -r ".items[] | select(.name == \"$repo_name\") | .id")
-    
-    if [ -n "$pm_repo_id" ] && [ "$pm_repo_id" != "null" ]; then
-        # Update the database directly
-        docker exec docker-mariadb-1 mariadb -u pulp-manager -ppulp-manager pulp_manager \
-            -e "UPDATE pulp_server_repos SET remote_href = '$remote_href' WHERE id = $pm_repo_id;"
-        echo "     Updated pulp-manager database: repo ID $pm_repo_id -> $remote_href"
-    else
-        echo "      Could not find repo $repo_name in pulp-manager database for server $server_id"
-        echo "    Available repos: $(echo "$pm_repo_response" | jq -r '.items[].name' | tr '\n' ' ')"
-    fi
-}
-
 echo ""
 echo "Checking server connectivity..."
 check_server_running "$PULP_PRIMARY" "Pulp Primary"
@@ -224,20 +90,20 @@ assign_signing_service_to_repo() {
 register_signing_service() {
     local container_name="$1"
     local server_name="$2"
-    
+
     echo "  Checking if signing service exists on $server_name..."
-    
+
     # Check if signing service already exists in the database
     existing=$(docker exec $container_name bash -c "pulpcore-manager shell -c \"from pulpcore.app.models import SigningService; print(SigningService.objects.filter(name='deb_signing_service').exists())\"" 2>/dev/null)
-    
+
     if [ "$existing" = "True" ]; then
         echo "  Signing service 'deb_signing_service' already exists on $server_name"
     else
         echo "  Creating signing service 'deb_signing_service' on $server_name..."
-        
+
         # Get the GPG key ID from the mounted keyring
         key_id=$(docker exec $container_name bash -c "GNUPGHOME=/opt/gpg gpg --list-secret-keys --with-colons 2>/dev/null | grep '^sec:' | cut -d: -f5 | head -1")
-        
+
         if [ -n "$key_id" ]; then
             # Add the signing service using the management command
             docker exec $container_name bash -c "pulpcore-manager add-signing-service \
@@ -260,36 +126,33 @@ register_signing_service "docker-pulp-primary-1" "Pulp Primary"
 register_signing_service "docker-pulp-secondary-1" "Pulp Secondary"
 
 echo ""
-echo "Step 1: Setting up Primary Server Repositories"
-echo "=============================================="
+echo "Step 1: Getting Repository References"
+echo "====================================="
 
-# Setup external repo on primary with upstream remote
-setup_repo_and_remote "$PULP_PRIMARY" "ext-small-repo" "External small Debian testing repository" \
-    "debian-testing-remote" "http://deb.debian.org/debian/" "testing" "main" "amd64"
-EXT_REPO_HREF=$REPO_HREF
+# Get repository hrefs (assumes repos already exist in Pulp)
+echo "  Getting int-demo-packages repository..."
+REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/?name=int-demo-packages")
+INT_REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.results[0].pulp_href')
 
-# Setup internal repo on primary (no remote needed)
-setup_repo_and_remote "$PULP_PRIMARY" "int-demo-packages" "Internal demo repository" "" "" "" "" ""
-INT_REPO_HREF=$REPO_HREF
-# Assign signing service to internal repo on primary
-assign_signing_service_to_repo "$PULP_PRIMARY" "$INT_REPO_HREF" "int-demo-packages"
+if [ -z "$INT_REPO_HREF" ] || [ "$INT_REPO_HREF" = "null" ]; then
+    echo "  ERROR: Repository 'int-demo-packages' not found on primary server"
+    echo "  Please create repositories manually or via Pulp Manager before running this script"
+    exit 1
+fi
+echo "  Found: $INT_REPO_HREF"
 
-echo ""
-echo "Step 2: Setting up Secondary Server Repositories"
-echo "==============================================="
+echo "  Getting ext-small-repo repository..."
+REPO_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY/pulp/api/v3/repositories/deb/apt/?name=ext-small-repo")
+EXT_REPO_HREF=$(echo "$REPO_RESPONSE" | jq -r '.results[0].pulp_href')
 
-# Setup repos on secondary that sync from primary
-setup_repo_and_remote "$PULP_SECONDARY" "int-demo-packages" "Internal demo packages synced from primary" \
-    "int-demo-remote" "http://docker-pulp-primary-1/pulp/content/int-demo-packages/" "stable" "" ""
-SECONDARY_INT_REPO_HREF=$REPO_HREF
-# Assign signing service to internal repo on secondary
-assign_signing_service_to_repo "$PULP_SECONDARY" "$SECONDARY_INT_REPO_HREF" "int-demo-packages"
-
-setup_repo_and_remote "$PULP_SECONDARY" "ext-small-repo" "External small repo synced from primary" \
-    "ext-small-remote" "http://docker-pulp-primary-1/pulp/content/ext-small-repo/" "testing" "main" "amd64"
+if [ -z "$EXT_REPO_HREF" ] || [ "$EXT_REPO_HREF" = "null" ]; then
+    echo "  ERROR: Repository 'ext-small-repo' not found on primary server"
+    exit 1
+fi
+echo "  Found: $EXT_REPO_HREF"
 
 echo ""
-echo "Step 3: Uploading Demo Package to Internal Repository"
+echo "Step 2: Uploading Demo Package to Internal Repository"
 echo "====================================================="
 
 # Check if package already exists in repository
@@ -308,7 +171,7 @@ else
     echo "   Uploading demo package..."
     CONTENT_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/content/deb/packages/" \
         -H "Content-Type: multipart/form-data" \
-        -F "file=@assets/packages/hello_2.10-2_amd64.deb")
+        -F "file=@demo/assets/packages/hello_2.10-2_amd64.deb")
     
     UPLOAD_TASK_HREF=$(echo "$CONTENT_RESPONSE" | jq -r '.task')
     wait_for_task "$UPLOAD_TASK_HREF" "$PULP_PRIMARY"
@@ -329,98 +192,52 @@ else
 fi
 
 echo ""
-echo "Step 4: Creating Publications"
-echo "============================="
-
-# Create publication for external repository
-echo "   Creating publication for ext-small-repo..."
-EXT_PUB_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/publications/deb/apt/" \
-    -H "Content-Type: application/json" \
-    -d "{\"repository\": \"$EXT_REPO_HREF\"}")
-
-if echo "$EXT_PUB_RESPONSE" | jq -e '.task' > /dev/null; then
-    EXT_PUB_TASK=$(echo "$EXT_PUB_RESPONSE" | jq -r '.task')
-    wait_for_task "$EXT_PUB_TASK" "$PULP_PRIMARY"
-    
-    # Get publication href
-    PUB_TASK_RESULT=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY$EXT_PUB_TASK")
-    EXT_PUB_HREF=$(echo "$PUB_TASK_RESULT" | jq -r '.created_resources[0]')
-    echo "   External publication created: $EXT_PUB_HREF"
-else
-    EXT_PUB_HREF=$(echo "$EXT_PUB_RESPONSE" | jq -r '.pulp_href')
-    echo "   External publication exists: $EXT_PUB_HREF"
-fi
+echo "Step 3: Creating Publications and Distributions"
+echo "==============================================="
 
 # Create publication for internal repository
-echo "   Creating publication for int-demo-packages..."
+echo "  Creating publication for int-demo-packages..."
 INT_PUB_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/publications/deb/apt/" \
     -H "Content-Type: application/json" \
-    -d "{\"repository\": \"$INT_REPO_HREF\"}")
+    -d "{\"repository\": \"$INT_REPO_HREF\", \"simple\": true}")
 
 if echo "$INT_PUB_RESPONSE" | jq -e '.task' > /dev/null; then
     INT_PUB_TASK=$(echo "$INT_PUB_RESPONSE" | jq -r '.task')
     wait_for_task "$INT_PUB_TASK" "$PULP_PRIMARY"
-    
+
     # Get publication href
     PUB_TASK_RESULT=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY$INT_PUB_TASK")
     INT_PUB_HREF=$(echo "$PUB_TASK_RESULT" | jq -r '.created_resources[0]')
-    echo "   Internal publication created: $INT_PUB_HREF"
-else
-    INT_PUB_HREF=$(echo "$INT_PUB_RESPONSE" | jq -r '.pulp_href')
-    echo "   Internal publication exists: $INT_PUB_HREF"
+    echo "  Publication created: $INT_PUB_HREF"
 fi
 
-echo ""
-echo "Step 5: Creating Distributions"
-echo "=============================="
+# Create or update distribution for internal repository
+DIST_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/?name=int-demo-packages")
+DIST_EXISTS=$(echo "$DIST_RESPONSE" | jq -r '.count')
 
-# Create distribution for external repository
-if check_exists "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" "ext-small-repo"; then
-    echo "   Distribution 'ext-small-repo' already exists"
-else
-    echo "   Creating distribution for ext-small-repo..."
-    EXT_DIST_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" \
+if [ "$DIST_EXISTS" -gt 0 ]; then
+    echo "  Updating distribution for int-demo-packages..."
+    DIST_HREF=$(echo "$DIST_RESPONSE" | jq -r '.results[0].pulp_href')
+    DIST_UPDATE=$(curl -s -u $PULP_USER:$PULP_PASS -X PATCH "$PULP_PRIMARY$DIST_HREF" \
         -H "Content-Type: application/json" \
-        -d "{
-            \"name\": \"ext-small-repo\",
-            \"base_path\": \"ext-small-repo\",
-            \"publication\": \"$EXT_PUB_HREF\"
-        }")
-    
-    if echo "$EXT_DIST_RESPONSE" | jq -e '.task' > /dev/null; then
-        EXT_DIST_TASK=$(echo "$EXT_DIST_RESPONSE" | jq -r '.task')
-        wait_for_task "$EXT_DIST_TASK" "$PULP_PRIMARY"
-    fi
-    echo "   External distribution created"
-fi
+        -d "{\"publication\": \"$INT_PUB_HREF\"}")
 
-# Create distribution for internal repository
-if check_exists "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" "int-demo-packages"; then
-    echo "   Distribution 'int-demo-packages' already exists"
+    if echo "$DIST_UPDATE" | jq -e '.task' > /dev/null; then
+        DIST_TASK=$(echo "$DIST_UPDATE" | jq -r '.task')
+        wait_for_task "$DIST_TASK" "$PULP_PRIMARY"
+    fi
 else
-    echo "   Creating distribution for int-demo-packages..."
-    INT_DIST_RESPONSE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" \
+    echo "  Creating distribution for int-demo-packages..."
+    DIST_CREATE=$(curl -s -u $PULP_USER:$PULP_PASS -X POST "$PULP_PRIMARY/pulp/api/v3/distributions/deb/apt/" \
         -H "Content-Type: application/json" \
-        -d "{
-            \"name\": \"int-demo-packages\",
-            \"base_path\": \"int-demo-packages\",
-            \"publication\": \"$INT_PUB_HREF\"
-        }")
-    
-    if echo "$INT_DIST_RESPONSE" | jq -e '.task' > /dev/null; then
-        INT_DIST_TASK=$(echo "$INT_DIST_RESPONSE" | jq -r '.task')
-        wait_for_task "$INT_DIST_TASK" "$PULP_PRIMARY"
+        -d "{\"name\": \"int-demo-packages\", \"base_path\": \"int-demo-packages\", \"publication\": \"$INT_PUB_HREF\"}")
+
+    if echo "$DIST_CREATE" | jq -e '.task' > /dev/null; then
+        DIST_TASK=$(echo "$DIST_CREATE" | jq -r '.task')
+        wait_for_task "$DIST_TASK" "$PULP_PRIMARY"
     fi
-    echo "   Internal distribution created"
 fi
-
-echo ""
-echo "Step 6: Updating Pulp Manager Database"
-echo "======================================"
-
-# Update pulp-manager database with remote associations for secondary server (ID=2)
-update_pulp_manager_db "2" "int-demo-packages" "$REMOTE_HREF_int_demo_packages"
-update_pulp_manager_db "2" "ext-small-repo" "$REMOTE_HREF_ext_small_repo"
+echo "  Distribution ready for int-demo-packages"
 
 echo ""
 echo " Demo Setup Complete!"

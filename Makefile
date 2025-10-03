@@ -58,17 +58,17 @@ venv: requirements.txt
 
 run-pulp-manager: setup-network setup-keys
 	@echo "Starting Pulp Manager services..."
-	docker compose -f docker/simple-cluster.yml up mariadb redis-manager pulp-manager-api pulp-manager-worker pulp-manager-scheduler --build
+	docker compose -f demo/docker-compose.yml up mariadb redis-manager pulp-manager-api pulp-manager-worker pulp-manager-scheduler --build
 
 .PHONY : run-pulp3
 run-pulp3: setup-network
 	@echo "Starting simplified Pulp 3 primary and secondary..."
-	docker compose -f docker/simple-cluster.yml up pulp-primary pulp-secondary --build
+	docker compose -f demo/docker-compose.yml up pulp-primary pulp-secondary --build
 
 .PHONY : run-cluster
 run-cluster: setup-network setup-keys
 	@echo "Starting complete simplified cluster with Pulp Manager, Primary and Secondary Pulp instances..."
-	docker compose -f docker/simple-cluster.yml up --build
+	docker compose -f demo/docker-compose.yml up --build
 
 setup-network:
 	@echo "Creating or verifying network..."
