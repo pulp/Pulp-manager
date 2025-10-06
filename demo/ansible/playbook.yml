@@ -1,6 +1,5 @@
 ---
-# Ansible playbook to set up Pulp demo environment
-# Replaces setup-demo.sh with infrastructure-as-code approach
+# Ansible playbook to set up Pulp Manager and Pulp Server demo environment
 
 - name: Setup Pulp Demo Environment
   hosts: localhost
@@ -8,13 +7,28 @@
   gather_facts: false
 
   vars:
-    pulp_primary_url: "http://demo-pulp-primary-1"
-    pulp_secondary_url: "http://demo-pulp-secondary-1"
+    pulp_primary_url: "http://localhost:8000"
+    pulp_secondary_url: "http://localhost:8001"
+    pulp_manager_url: "http://localhost:8080"
     pulp_username: "admin"
     pulp_password: "password"
-    package_file: "/assets/packages/hello_2.10-2_amd64.deb"
+    project_dir: "{{ playbook_dir }}/../.."
+    package_file: "{{ playbook_dir }}/../../demo/assets/packages/hello_2.10-2_amd64.deb"
 
   tasks:
+    - name: Setup Docker network
+      shell: docker network inspect pulp-net >/dev/null 2>&1 || docker network create pulp-net
+
+    - name: Setup encryption keys
+      shell: make setup-keys
+      args:
+        chdir: "{{ project_dir }}"
+
+    - name: Start Docker Compose cluster
+      shell: docker compose -f demo/docker-compose.yml up -d --build
+      args:
+        chdir: "{{ project_dir }}"
+
     - name: Wait for Pulp Primary to be ready
       pulp.squeezer.status:
         pulp_url: "{{ pulp_primary_url }}"
@@ -22,7 +36,7 @@
         password: "{{ pulp_password }}"
       register: primary_status
       until: primary_status is not failed
-      retries: 30
+      retries: 60
       delay: 5
 
     - name: Wait for Pulp Secondary to be ready
@@ -32,8 +46,38 @@
         password: "{{ pulp_password }}"
       register: secondary_status
       until: secondary_status is not failed
-      retries: 30
+      retries: 60
       delay: 5
+
+    - name: Register signing service on primary
+      shell: |
+        docker exec demo-pulp-primary-1 sh -c '
+          existing=$(pulpcore-manager shell -c "from pulpcore.app.models import SigningService; print(SigningService.objects.filter(name=\"deb_signing_service\").exists())" 2>/dev/null)
+          if [ "$existing" != "True" ]; then
+            key_id=$(GNUPGHOME=/opt/gpg gpg --list-secret-keys --with-colons 2>/dev/null | grep "^sec:" | cut -d: -f5 | head -1)
+            if [ -n "$key_id" ]; then
+              pulpcore-manager add-signing-service deb_signing_service /opt/scripts/deb_sign.sh "$key_id" --gnupghome /opt/gpg 2>/dev/null
+              echo "Signing service created on primary"
+            fi
+          else
+            echo "Signing service already exists on primary"
+          fi
+        '
+
+    - name: Register signing service on secondary
+      shell: |
+        docker exec demo-pulp-secondary-1 sh -c '
+          existing=$(pulpcore-manager shell -c "from pulpcore.app.models import SigningService; print(SigningService.objects.filter(name=\"deb_signing_service\").exists())" 2>/dev/null)
+          if [ "$existing" != "True" ]; then
+            key_id=$(GNUPGHOME=/opt/gpg gpg --list-secret-keys --with-colons 2>/dev/null | grep "^sec:" | cut -d: -f5 | head -1)
+            if [ -n "$key_id" ]; then
+              pulpcore-manager add-signing-service deb_signing_service /opt/scripts/deb_sign.sh "$key_id" --gnupghome /opt/gpg 2>/dev/null
+              echo "Signing service created on secondary"
+            fi
+          else
+            echo "Signing service already exists on secondary"
+          fi
+        '
 
     - name: Create int-demo-packages repository on primary
       pulp.squeezer.deb_repository:
@@ -54,6 +98,24 @@
         description: "External demo repository\n base_url: ext-small-repo"
         state: present
       register: ext_repo
+
+    - name: Create int-demo-packages repository on secondary
+      pulp.squeezer.deb_repository:
+        pulp_url: "{{ pulp_secondary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+        name: "int-demo-packages"
+        description: "Internal demo repository\n base_url: int-demo-packages"
+        state: present
+
+    - name: Create ext-small-repo repository on secondary
+      pulp.squeezer.deb_repository:
+        pulp_url: "{{ pulp_secondary_url }}"
+        username: "{{ pulp_username }}"
+        password: "{{ pulp_password }}"
+        name: "ext-small-repo"
+        description: "External demo repository\n base_url: ext-small-repo"
+        state: present
 
     - name: Get int-demo-packages repository details
       pulp.squeezer.deb_repository:
@@ -194,3 +256,67 @@
         status_code: [201, 202]
       when: dist_check.json.count == 0
 
+    - name: Trigger repository discovery on primary server
+      uri:
+        url: "{{ pulp_manager_url }}/v1/pulp_servers/1/sync_repos"
+        method: POST
+        body_format: json
+        body:
+          max_runtime: "3600"
+          max_concurrent_syncs: 5
+        status_code: [200, 201]
+      register: primary_sync
+
+    - name: Wait for primary server repository discovery
+      uri:
+        url: "{{ pulp_manager_url }}/v1/tasks/{{ primary_sync.json.id }}"
+        method: GET
+      register: primary_sync_task
+      until: primary_sync_task.json.state in ["completed", "failed"]
+      retries: 30
+      delay: 2
+
+    - name: Trigger repository discovery on secondary server
+      uri:
+        url: "{{ pulp_manager_url }}/v1/pulp_servers/2/sync_repos"
+        method: POST
+        body_format: json
+        body:
+          max_runtime: "3600"
+          max_concurrent_syncs: 5
+        status_code: [200, 201]
+      register: secondary_sync
+
+    - name: Wait for secondary server repository discovery
+      uri:
+        url: "{{ pulp_manager_url }}/v1/tasks/{{ secondary_sync.json.id }}"
+        method: GET
+      register: secondary_sync_task
+      until: secondary_sync_task.json.state in ["completed", "failed"]
+      retries: 30
+      delay: 2
+
+    - name: Display completion message
+      debug:
+        msg:
+          - ""
+          - "============================================"
+          - "Demo Setup Complete!"
+          - "============================================"
+          - ""
+          - "Available repositories on primary:"
+          - "  - ext-small-repo: {{ pulp_primary_url }}/pulp/content/ext-small-repo/"
+          - "  - int-demo-packages: {{ pulp_primary_url }}/pulp/content/int-demo-packages/"
+          - ""
+          - "Available repositories on secondary:"
+          - "  - ext-small-repo: {{ pulp_secondary_url }}/pulp/content/ext-small-repo/"
+          - "  - int-demo-packages: {{ pulp_secondary_url }}/pulp/content/int-demo-packages/"
+          - ""
+          - "Pulp Manager API: {{ pulp_manager_url }}"
+          - "RQ Dashboard: http://localhost:9181"
+          - ""
+          - "To sync repositories from primary to secondary:"
+          - "  curl -X POST '{{ pulp_manager_url }}/v1/pulp_servers/2/sync_repos' \\"
+          - "    -H 'Content-Type: application/json' \\"
+          - "    -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 2, \"regex_include\": \"^int\", \"source_pulp_server_name\": \"pulp-primary:80\"}'"
+          - ""

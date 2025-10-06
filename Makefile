@@ -14,11 +14,7 @@ h help:
 	"c|cover"       "Run coverage for all tests" \
 	"venv"          "Create virtualenv" \
 	"clean"         "Clean workspace" \
-        "setup-keys"    "Generates keys for use in local cluster" \
-	"run-pulp3"	"Start Pulp 3 locally with Docker Compose" \
-	"run-pulp-manager"    "Start Pulp Manager with Docker Compose" \
-	"run-cluster"	      "Start Pulp3 + Pulp Manger local cluster with Docker Compose" \
-	"setup-demo"    "Setup complete demo environment with repositories and packages"
+	"demo"    "Run demo environment"
 
 .PHONY : l lint
 l lint: venv
@@ -50,35 +46,17 @@ c cover: venv check-devcontainer
 	coverage run --source=. --omit=pulp_manager/tests/unit/mock_repository.py -m pytest -v && coverage report --fail-under=90; \
 	coverage html
 
+.PHONY : venv
 venv: requirements.txt
 	@python3 -m venv venv
 	@. venv/bin/activate; \
 	pip install --upgrade pip; \
 	pip install -r requirements.txt
 
-run-pulp-manager: setup-network setup-keys
-	@echo "Starting Pulp Manager services..."
-	docker compose -f demo/docker-compose.yml up mariadb redis-manager pulp-manager-api pulp-manager-worker pulp-manager-scheduler --build
-
-.PHONY : run-pulp3
-run-pulp3: setup-network
-	@echo "Starting simplified Pulp 3 primary and secondary..."
-	docker compose -f demo/docker-compose.yml up pulp-primary pulp-secondary --build
-
-.PHONY : run-cluster
-run-cluster: setup-network setup-keys
-	@echo "Starting complete simplified cluster with Pulp Manager, Primary and Secondary Pulp instances..."
-	docker compose -f demo/docker-compose.yml up --build
-
-setup-network:
-	@echo "Creating or verifying network..."
-	docker network inspect pulp-net >/dev/null 2>&1 || \
-	docker network create pulp-net
-	@echo "Network setup completed."
-
+.PHONY : setup-keys
 setup-keys:
 	@echo "Checking for Pulp encryption keys..."
-	@mkdir -p demo/assets/certs demo/assets/keys demo/assets/nginx-conf
+	@mkdir -p demo/assets/certs demo/assets/keys/gpg demo/assets/nginx-conf
 	@if [ ! -f demo/assets/certs/database_fields.symmetric.key ]; then \
 		echo "Generating database encryption key..."; \
 		openssl rand -base64 32 > demo/assets/certs/database_fields.symmetric.key; \
@@ -86,15 +64,6 @@ setup-keys:
 	else \
 		echo "Database encryption key already exists."; \
 	fi
-	@if [ ! -f demo/assets/keys/container_auth_private_key.pem ]; then \
-		echo "Generating container auth keys..."; \
-		openssl ecparam -genkey -name secp256r1 -noout -out demo/assets/keys/container_auth_private_key.pem; \
-		openssl ec -in demo/assets/keys/container_auth_private_key.pem -pubout -out demo/assets/keys/container_auth_public_key.pem; \
-		echo "Container auth keys created."; \
-	else \
-		echo "Container auth keys already exist."; \
-	fi
-	@mkdir -p demo/assets/keys/gpg
 	@if [ ! -f demo/assets/keys/gpg/public.key ] || [ ! -s demo/assets/keys/gpg/public.key ]; then \
 		echo "Generating GPG signing keys..."; \
 		rm -rf demo/assets/keys/gpg/*; \
@@ -106,38 +75,20 @@ setup-keys:
 		echo "Expire-Date: 0" >> /tmp/gpg-batch-config; \
 		echo "%no-protection" >> /tmp/gpg-batch-config; \
 		echo "%commit" >> /tmp/gpg-batch-config; \
+		GNUPGHOME=demo/assets/keys/gpg gpg-agent --daemon 2>/dev/null || true; \
 		GNUPGHOME=demo/assets/keys/gpg gpg --batch --no-default-keyring --keyring demo/assets/keys/gpg/pubring.kbx --gen-key /tmp/gpg-batch-config; \
 		GNUPGHOME=demo/assets/keys/gpg gpg --no-default-keyring --keyring demo/assets/keys/gpg/pubring.kbx --armor --export > demo/assets/keys/gpg/public.key; \
+		GNUPGHOME=demo/assets/keys/gpg gpgconf --kill gpg-agent 2>/dev/null || true; \
 		rm /tmp/gpg-batch-config; \
 		echo "GPG signing keys created."; \
 	else \
 		echo "GPG signing keys already exist."; \
 	fi
 
-.PHONY : setup-demo
-setup-demo:
+.PHONY : demo
+demo: venv setup-keys
 	@echo "Setting up demo environment..."
-	@docker run --rm \
-		--network pulp-net \
-		-v $(PWD)/demo/ansible:/ansible:ro \
-		-v $(PWD)/demo/assets:/assets:ro \
-		cytopia/ansible:latest \
-		sh -c "pip3 install -q 'pulp-glue>=0.29.0' 'pulp-glue-deb>=0.3.0,<0.4' 2>&1 && \
+	@. venv/bin/activate && \
+		pip install -q ansible 'pulp-glue>=0.29.0' 'pulp-glue-deb>=0.3.0,<0.4' && \
 		ansible-galaxy collection install pulp.squeezer 2>&1 | grep -v 'Installing' && \
-		ansible-playbook -i localhost, /ansible/playbook.yml"
-	@echo ""
-	@echo "Demo Setup Complete"
-	@echo "==================="
-	@echo ""
-	@echo "Available repositories:"
-	@echo "  - ext-small-repo (external): http://localhost:8000/pulp/content/ext-small-repo/"
-	@echo "  - int-demo-packages (internal): http://localhost:8000/pulp/content/int-demo-packages/"
-	@echo ""
-	@echo "Pulp Manager sync commands:"
-	@echo "  # Sync internal repositories:"
-	@echo "  curl -X POST 'http://localhost:8080/v1/pulp_servers/2/sync_repos' -H 'Content-Type: application/json' -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 5, \"regex_include\": \"int-.*\", \"regex_exclude\": \"\"}'"
-	@echo ""
-	@echo "  # Sync external repositories:"
-	@echo "  curl -X POST 'http://localhost:8080/v1/pulp_servers/2/sync_repos' -H 'Content-Type: application/json' -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 5, \"regex_include\": \"ext-.*\", \"regex_exclude\": \"\"}'"
-	@echo ""
-	@echo "Monitor tasks: http://localhost:9181"
+		ansible-playbook -i localhost, demo/ansible/playbook.yml

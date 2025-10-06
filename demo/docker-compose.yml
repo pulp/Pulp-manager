@@ -15,8 +15,6 @@ services:
       - "/dev/fuse"
     networks:
       - pulp-net
-    entrypoint: ["/bin/bash", "-c"]
-    command: ["sleep 10 && /opt/scripts/setup-signing-service.sh & /usr/local/bin/pulp-api"]
 
   pulp-secondary:
     image: pulp/pulp:stable
@@ -34,8 +32,6 @@ services:
       - "/dev/fuse"
     networks:
       - pulp-net
-    entrypoint: ["/bin/bash", "-c"]
-    command: ["sleep 10 && /opt/scripts/setup-signing-service.sh & /usr/local/bin/pulp-api"]
 
   # Pulp Manager services
   mariadb:
