@@ -4,8 +4,9 @@ venv
 # Demo environment runtime files
 demo/assets/certs/*
 !demo/assets/certs/.gitkeep
-demo/assets/keys/gpg/*
-!demo/assets/keys/.gitkeep
+demo/assets/keys/gpg/
+demo/assets/keys/*.pem
+demo/assets/keys/*.key
 
 # Other runtime files
 .coverage
