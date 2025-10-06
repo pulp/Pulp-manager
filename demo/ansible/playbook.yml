@@ -19,10 +19,66 @@
     - name: Setup Docker network
       shell: docker network inspect pulp-net >/dev/null 2>&1 || docker network create pulp-net
 
-    - name: Setup encryption keys
-      shell: make setup-keys
-      args:
-        chdir: "{{ project_dir }}"
+    - name: Create key directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0700'
+      loop:
+        - "{{ project_dir }}/demo/assets/certs"
+        - "{{ project_dir }}/demo/assets/keys/gpg"
+        - "{{ project_dir }}/demo/assets/nginx-conf"
+
+    - name: Check if database encryption key exists
+      stat:
+        path: "{{ project_dir }}/demo/assets/certs/database_fields.symmetric.key"
+      register: db_key_stat
+
+    - name: Generate database encryption key
+      shell: openssl rand -base64 32 > "{{ project_dir }}/demo/assets/certs/database_fields.symmetric.key"
+      when: not db_key_stat.stat.exists
+
+    - name: Check if GPG public key exists
+      stat:
+        path: "{{ project_dir }}/demo/assets/keys/gpg/public.key"
+      register: gpg_key_stat
+
+    - name: Check if GPG public key is empty
+      stat:
+        path: "{{ project_dir }}/demo/assets/keys/gpg/public.key"
+      register: gpg_key_size
+      when: gpg_key_stat.stat.exists
+
+    - name: Clean GPG directory if key is missing or empty
+      file:
+        path: "{{ project_dir }}/demo/assets/keys/gpg"
+        state: absent
+      when: not gpg_key_stat.stat.exists or (gpg_key_stat.stat.exists and gpg_key_size.stat.size == 0)
+
+    - name: Recreate GPG directory
+      file:
+        path: "{{ project_dir }}/demo/assets/keys/gpg"
+        state: directory
+        mode: '0700'
+      when: not gpg_key_stat.stat.exists or (gpg_key_stat.stat.exists and gpg_key_size.stat.size == 0)
+
+    - name: Generate GPG signing keys
+      shell: |
+        cat > /tmp/gpg-batch-config <<EOF
+        Key-Type: RSA
+        Key-Length: 2048
+        Name-Real: Demo Signing Service
+        Name-Email: signing@pulp-demo.local
+        Expire-Date: 0
+        %no-protection
+        %commit
+        EOF
+        GNUPGHOME={{ project_dir }}/demo/assets/keys/gpg gpg-agent --daemon 2>/dev/null || true
+        GNUPGHOME={{ project_dir }}/demo/assets/keys/gpg gpg --batch --no-default-keyring --keyring {{ project_dir }}/demo/assets/keys/gpg/pubring.kbx --gen-key /tmp/gpg-batch-config
+        GNUPGHOME={{ project_dir }}/demo/assets/keys/gpg gpg --no-default-keyring --keyring {{ project_dir }}/demo/assets/keys/gpg/pubring.kbx --armor --export > {{ project_dir }}/demo/assets/keys/gpg/public.key
+        GNUPGHOME={{ project_dir }}/demo/assets/keys/gpg gpgconf --kill gpg-agent 2>/dev/null || true
+        rm /tmp/gpg-batch-config
+      when: not gpg_key_stat.stat.exists or (gpg_key_stat.stat.exists and gpg_key_size.stat.size == 0)
 
     - name: Start Docker Compose cluster
       shell: docker compose -f demo/docker-compose.yml up -d --build
