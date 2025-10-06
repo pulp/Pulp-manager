@@ -12,8 +12,8 @@ a primary/secondary setup.
 
 ## Why Pulp Manager?
 
-Pulp Manager provides centralized orchestration of a clustger of Pulp3
-instances and is particularly usfeful for organizations with
+Pulp Manager provides centralized orchestration of a cluster of Pulp3
+instances. It is particularly useful for organizations with
 multi-tiered or multi-zone deployments who need coordinated syncs
 between primary and secondary servers.
 
@@ -227,7 +227,7 @@ Defines authentication allowed against the API
 - `jwt_algorithm`: Algorithm to use to encrypt JWT tokens
 - `jwt_token_lifetime_mins`: Number of minutes JWT is valid for
 - `admin_group`: Directory group user must be a member of to carry out
-  priveldged actions agains the API
+  privileged actions against the API
 - `require_jwt_auth`: Boolean whether to require JWT authentication for
   protected API endpoints. Set to false for local development environments
   where authentication is not needed. Defaults to true
@@ -304,7 +304,7 @@ pulp_servers:
     repo_groups:
       external_repos:
         schedule: "0 0 * * *"
-        max_conccurent_sync: 2
+        max_concurrent_sync: 2
         max_runtime: "6h"
     snapshot_support:
       max_concurrent_snapshots: 2
@@ -314,7 +314,7 @@ pulp_servers:
     repo_groups:
       external_repos:
         schedule: "0 6 * * *"
-        max_conccurent_sync: 2
+        max_concurrent_sync: 2
         max_runtime: "6h"
         pulp_master: pulp3mast1.example.com
 
@@ -359,10 +359,10 @@ credentials and repo groups to sync.
     when the job is run
   - `max_runtime`: How long the job should run for before it is
     cancelled
-  - `pulp_primary` (Optional): If the pulp server is synching the
+  - `pulp_master` (Optional): If the pulp server is synching the
     repos from a pulp primary, specify the name of the pulp
     server. This needs to exist in the pulp_servers config so that the
-    list of repos on the server can be retreived via the API
+    list of repos on the server can be retrieved via the API
 - `snapshot_support`: specifies if snapshots can be run against the
   pulp server, value is a dict
   - `max_concurrent_snapshots`: number of repos that can snapshotted
@@ -499,8 +499,7 @@ execute the following command in your terminal:
 ```shell
 make run-pulp-manager
 ```
-This command orchestrates the setup by utilizing dockercompose-local.yml to start all necessary services. It also triggers the 
-building of Docker images if they are not found or if there are updates to the images since the last build. 
+This command starts the Pulp Manager API, worker, and RQ dashboard services along with their dependencies (MariaDB and Redis). It uses the demo/docker-compose.yml configuration. 
 
 For local authentication, the Pulp manager utilizes the password
 specified for pulp3 in local_config.ini and the username defined in
@@ -540,13 +539,13 @@ need to stop and restart the entire environment every time you modify
 a file.
 
 
-5. **Starting Pulp 3 Environment**  
+5. **Starting Pulp 3 Environment**
 
-For development that requires Pulp 3, you can start the Pulp 3 environment locally using Docker Compose. Run the following command in your terminal:
+For development that requires Pulp 3, you can start the Pulp 3 environment. Run the following command in your terminal:
 ```
 make run-pulp3
 ```
-This command makes use of dockercompose-pulp3.yml to bring up the Pulp 3 services. It's particularly useful for testing integrations with Pulp 3 or when working on features that depend on Pulp 3 services.
+This command starts the Pulp 3 primary and secondary servers using the demo/docker-compose.yml configuration. It's particularly useful for testing integrations with Pulp 3 or when working on features that depend on Pulp 3 services.
 
 #### When to Use make run-pulp-manager Again:
 
