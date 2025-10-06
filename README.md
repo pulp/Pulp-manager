@@ -7,15 +7,15 @@
 
 The Pulp Manager application is used to coordinate common Pulp
 workflows and provide additional reporting capabilities about a
-cluster of Pulp servers. It is designed to work with Pulp3.
+cluster of Pulp servers. It is designed to work with Pulp3 servers in
+a primary/secondary setup.
 
-## About the Project
+## Why Pulp Manager?
 
-We recommend that Pulp be operated in a primary/secondary setup. There
-is a single Pulp instance known as the Pulp Primary which syncs repos
-from the Internet and can also have custom or internal packages
-uploaded to it. Secondaries are then configured to sync these
-snapshots and internal repos.
+Pulp Manager provides centralized orchestration of a clustger of Pulp3
+instances and is particularly usfeful for organizations with
+multi-tiered or multi-zone deployments who need coordinated syncs
+between primary and secondary servers.
 
 Pulp3 doesn't provide a method to schedule the synchronisation of
 repos, and in some repository types (deb) may require multiple steps
@@ -129,18 +129,22 @@ components:
 
 ## Quick Start
 
-1. **For Development, use Dev Container**
+1. **For Development (running tests, exploring APIs, etc) **
    ```bash
    # Open in VS Code and select action "Dev Containers: Reopen in Container"
    # Or use the Dev Container CLI:
    devcontainer up --workspace-folder .
    ```
+   
+   From a terminal in the devcontainer, 'make t' will run the tests.
+ 
 
-2. **For Demo cluster, use make targets to setup a Docker Compose environment**
+2. **For Demo cluster, use the make target to setup a complete Docker Compose environment**
    ```bash
-   make run-cluster
-   make setup-cluster
+   make demo
    ```
+   
+   When startup is finished, `docker ps` will show you the components, and all APIs will be listening.
 
 For detailed development setup, see the [Development
 Info](#development-info) section.
