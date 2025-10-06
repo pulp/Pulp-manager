@@ -14,7 +14,9 @@ h help:
 	"c|cover"       "Run coverage for all tests" \
 	"venv"          "Create virtualenv" \
 	"clean"         "Clean workspace" \
-	"demo"    "Run demo environment"
+	"run-pulp-manager" "Run Pulp Manager services for development" \
+	"run-pulp3"     "Run Pulp 3 primary and secondary servers" \
+	"demo"          "Run complete demo environment"
 
 .PHONY : l lint
 l lint: venv
@@ -52,6 +54,27 @@ venv: requirements.txt
 	@. venv/bin/activate; \
 	pip install --upgrade pip; \
 	pip install -r requirements.txt
+
+.PHONY : run-pulp-manager
+run-pulp-manager:
+	@echo "Starting Pulp Manager services for development..."
+	@docker compose -f demo/docker-compose.yml up -d mariadb redis-manager
+	@echo "Waiting for database to be ready..."
+	@sleep 5
+	@docker compose -f demo/docker-compose.yml up -d pulp-manager-api pulp-manager-worker pulp-manager-rq-dashboard
+	@echo ""
+	@echo "Pulp Manager services started!"
+	@echo "API: http://localhost:8080/docs"
+	@echo "RQ Dashboard: http://localhost:9181"
+
+.PHONY : run-pulp3
+run-pulp3:
+	@echo "Starting Pulp 3 primary and secondary servers..."
+	@docker compose -f demo/docker-compose.yml up -d pulp-primary pulp-secondary
+	@echo ""
+	@echo "Pulp 3 servers started!"
+	@echo "Primary: http://localhost:8000"
+	@echo "Secondary: http://localhost:8001"
 
 .PHONY : demo
 demo: venv
