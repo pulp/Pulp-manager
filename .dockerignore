@@ -1,0 +1,6 @@
+demo/assets/keys/gpg/
+demo/assets/certs/
+.claude/
+.coverage
+venv/
+__pycache__/

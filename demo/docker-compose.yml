@@ -1,0 +1,156 @@
+services:
+  pulp-primary:
+    image: pulp/pulp:stable
+    ports:
+      - "8000:80"
+    environment:
+      - POSTGRES_PASSWORD=password
+      - PULP_DEFAULT_ADMIN_PASSWORD=password
+    volumes:
+      - "./settings/settings-primary.py:/etc/pulp/settings.py:z"
+      - "./assets/certs/database_fields.symmetric.key:/etc/pulp/database_fields.symmetric.key:z"
+      - "./assets/scripts:/opt/scripts:z"
+      - "./assets/keys/gpg:/opt/gpg:z"
+    devices:
+      - "/dev/fuse"
+    networks:
+      - pulp-net
+
+  pulp-secondary:
+    image: pulp/pulp:stable
+    ports:
+      - "8001:80"
+    environment:
+      - POSTGRES_PASSWORD=password
+      - PULP_DEFAULT_ADMIN_PASSWORD=password
+    volumes:
+      - "./settings/settings-secondary.py:/etc/pulp/settings.py:z"
+      - "./assets/certs/database_fields.symmetric.key:/etc/pulp/database_fields.symmetric.key:z"
+      - "./assets/scripts:/opt/scripts:z"
+      - "./assets/keys/gpg:/opt/gpg:z"
+    devices:
+      - "/dev/fuse"
+    networks:
+      - pulp-net
+
+  # Pulp Manager services
+  mariadb:
+    image: mariadb:11.1.2-jammy
+    ports:
+      - "3306:3306"
+    environment:
+      MARIADB_USER: pulp-manager
+      MARIADB_PASSWORD: pulp-manager
+      MARIADB_ROOT_PASSWORD: my-root-password
+      MARIADB_DATABASE: pulp_manager
+    networks:
+      - pulp-net
+
+  redis-manager:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - pulp-net
+
+  pulp-manager-api:
+    build: ..
+    entrypoint: ["/bin/sh", "-c"] 
+    command: ["/usr/local/bin/pulp-manager -m && /usr/local/bin/pulp-manager -a --no-ssl --dev"]
+    ports:
+      - "8080:8000"
+    environment:
+      DB_HOSTNAME: mariadb
+      DB_NAME: pulp_manager
+      DB_USER: pulp-manager
+      DB_PASSWORD: pulp-manager
+      JWT_SECRET: test_secret
+      PULP_MANAGER_CONFIG_PATH: /pulp_manager/demo/config.ini
+      PULP_SYNC_CONFIG_PATH: /pulp_manager/demo/pulp-config.yml
+      Is_local: true
+    depends_on:
+      - mariadb
+      - redis-manager
+    networks:
+      - pulp-net
+
+  pulp-manager-worker:
+    build: ..
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/usr/local/bin/pulp-manager -w"]
+    environment:
+      DB_HOSTNAME: mariadb
+      DB_NAME: pulp_manager
+      DB_USER: pulp-manager
+      DB_PASSWORD: pulp-manager
+      JWT_SECRET: test_secret
+      PULP_MANAGER_CONFIG_PATH: /pulp_manager/demo/config.ini
+      PULP_SYNC_CONFIG_PATH: /pulp_manager/demo/pulp-config.yml
+      Is_local: true
+    depends_on:
+      - mariadb
+      - redis-manager
+      - pulp-manager-api
+    networks:
+      - pulp-net
+
+  pulp-manager-rq-dashboard:
+    build: ..
+    entrypoint: ["/bin/sh", "-c"] 
+    command: ["/opt/venv/bin/rq-dashboard --bind 0.0.0.0 --port 9181 --redis-url redis://redis-manager:6379"]
+    ports:
+      - "9181:9181"
+    environment:
+      DB_HOSTNAME: mariadb
+      DB_NAME: pulp_manager
+      DB_USER: pulp-manager
+      DB_PASSWORD: pulp-manager
+      JWT_SECRET: test_secret
+      PULP_MANAGER_CONFIG_PATH: /pulp_manager/demo/config.ini
+      PULP_SYNC_CONFIG_PATH: /pulp_manager/demo/pulp-config.yml
+      Is_local: true
+    depends_on:
+      - redis-manager
+    networks:
+      - pulp-net
+
+  pulp-manager-scheduler:
+    build: ..
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/usr/local/bin/pulp-manager -s"]
+    environment:
+      DB_HOSTNAME: mariadb
+      DB_NAME: pulp_manager
+      DB_USER: pulp-manager
+      DB_PASSWORD: pulp-manager
+      JWT_SECRET: test_secret
+      PULP_MANAGER_CONFIG_PATH: /pulp_manager/demo/config.ini
+      PULP_SYNC_CONFIG_PATH: /pulp_manager/demo/pulp-config.yml
+      Is_local: true
+    depends_on:
+      - mariadb
+      - redis-manager
+      - pulp-manager-api
+    networks:
+      - pulp-net
+
+  deb-signing-service:
+    image: python:3.11-slim
+    command: >
+      sh -c "apt-get update && apt-get install -y gnupg &&
+             pip install flask &&
+             python /app/signing_service.py"
+    volumes:
+      - "./assets/scripts/signing_service.py:/app/signing_service.py:z"
+      - "./assets/keys/gpg:/app/gpg:z"
+    environment:
+      - GNUPGHOME=/app/gpg
+    networks:
+      - pulp-net
+    ports:
+      - "8082:8080"
+    restart: unless-stopped
+
+networks:
+  pulp-net:
+    external: true

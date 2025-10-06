@@ -1023,7 +1023,14 @@ class PulpManager(PulpServerService):
         :return: str
         """
 
-        return f"https://{pulp_server_name}/pulp/content/{distribution.base_path}"
+        protocol = "https"
+        if "pulp" in CONFIG and "use_https_for_sync" in CONFIG["pulp"]:
+            use_https = CONFIG["pulp"]["use_https_for_sync"]
+            if isinstance(use_https, str):
+                use_https = use_https.lower() == "true"
+            protocol = "https" if use_https else "http"
+        
+        return f"{protocol}://{pulp_server_name}/pulp/content/{distribution.base_path}"
 
     def _get_repo_file_list_from_url(self, url: str):
         """Returns a list of files/directories that exist at the given url. When pulp is hosting
@@ -1079,11 +1086,21 @@ class PulpManager(PulpServerService):
         # http://pulp3mast1.example.com:24816/pulp/content/ubuntu-20.04-x86_64/focal-backports/
         # need to strip 24816 from this. In the future we that logic can be removed if can make
         # pulp not include this
-        url = url.replace("http://", "https://")
+        
+        # Only convert to HTTPS if configured to do so
+        use_https_for_sync = True  # Default to HTTPS
+        if "pulp" in CONFIG and "use_https_for_sync" in CONFIG["pulp"]:
+            use_https = CONFIG["pulp"]["use_https_for_sync"]
+            if isinstance(use_https, str):
+                use_https = use_https.lower() == "true"
+            use_https_for_sync = use_https
+        
+        if use_https_for_sync:
+            url = url.replace("http://", "https://")
         url = url.replace(":24816", "")
 
         if "dists/" not in url:
-            url = url + "dists/"
+            url = url.rstrip('/') + "/dists/"
 
         # This check is due to _get_apt_distributions_from_url strips off the trailing
         # / when getting the list of possible distributions, when called recursivley,

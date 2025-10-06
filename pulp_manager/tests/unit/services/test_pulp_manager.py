@@ -607,7 +607,7 @@ class TestPulpManager:
             "base_path": "el7-x86_64/ext-rpm"
         })
 
-        expected = "https://pulp_server.domain.local/pulp/content/el7-x86_64/ext-rpm"
+        expected = "http://pulp_server.domain.local/pulp/content/el7-x86_64/ext-rpm"
         seen = self.pulp_manager._generate_feed_from_distribution("pulp_server.domain.local", distribution)
 
         assert seen == expected

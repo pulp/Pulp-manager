@@ -7,15 +7,15 @@
 
 The Pulp Manager application is used to coordinate common Pulp
 workflows and provide additional reporting capabilities about a
-cluster of Pulp servers. It is designed to work with Pulp3.
+cluster of Pulp servers. It is designed to work with Pulp3 servers in
+a primary/secondary setup.
 
-## About the Project
+## Why Pulp Manager?
 
-We recommend that Pulp be operated in a primary/secondary setup. There
-is a single Pulp instance known as the Pulp Primary which syncs repos
-from the Internet and can also have custom or internal packages
-uploaded to it. Secondaries are then configured to sync these
-snapshots and internal repos.
+Pulp Manager provides centralized orchestration of a clustger of Pulp3
+instances and is particularly usfeful for organizations with
+multi-tiered or multi-zone deployments who need coordinated syncs
+between primary and secondary servers.
 
 Pulp3 doesn't provide a method to schedule the synchronisation of
 repos, and in some repository types (deb) may require multiple steps
@@ -26,7 +26,8 @@ or Jenkins.
 
 ## Core Team
 
-This project is maintained by G-Research. For details on our team and
+This project originated at [G-Research](https://github.com/G-Research)
+but is now owned by the Pulp project. For details on our team and
 roles, please see the [MAINTAINERS.md](MAINTAINERS.md) file.
 
 ## Documentation Index
@@ -128,17 +129,22 @@ components:
 
 ## Quick Start
 
-1. **Using DevContainers (Recommended)**
+1. **For Development (running tests, exploring APIs, etc) **
    ```bash
-   # Open in VS Code and select "Reopen in Container"
-   # Or use the CLI:
+   # Open in VS Code and select action "Dev Containers: Reopen in Container"
+   # Or use the Dev Container CLI:
    devcontainer up --workspace-folder .
    ```
+   
+   From a terminal in the devcontainer, 'make t' will run the tests.
+ 
 
-2. **Manual Setup**
+2. **For Demo cluster, use the make target to setup a complete Docker Compose environment**
    ```bash
-   make run-pulp-manager
+   make demo
    ```
+   
+   When startup is finished, `docker ps` will show you the components, and all APIs will be listening.
 
 For detailed development setup, see the [Development
 Info](#development-info) section.
@@ -168,6 +174,7 @@ default_domain=example.com
 jwt_algorithm=HS256
 jwt_token_lifetime_mins=480
 admin_group=pulpmaster-rw
+require_jwt_auth=true
 
 [pulp]
 deb_signing_service=pulp_deb
@@ -180,6 +187,7 @@ internal_package_prefix=corp_
 package_name_replacement_pattern=
 package_name_replacement_rule=
 remote_tls_validation=true
+use_https_for_sync=true
 
 [redis]
 host=redis
@@ -220,6 +228,9 @@ Defines authentication allowed against the API
 - `jwt_token_lifetime_mins`: Number of minutes JWT is valid for
 - `admin_group`: Directory group user must be a member of to carry out
   priveldged actions agains the API
+- `require_jwt_auth`: Boolean whether to require JWT authentication for
+  protected API endpoints. Set to false for local development environments
+  where authentication is not needed. Defaults to true
 
 ### pulp
 
@@ -239,6 +250,8 @@ Settings to apply to all pulp servers
   the pulp repo config
 - `remote_tls_validation`: Boolean whether to require TLS validation
   of remote hosts
+- `use_https_for_sync`: Boolean whether to use HTTPS for repository sync URLs.
+  Set to false for local HTTP-only development environments. Defaults to true.
 
 ### redis
 

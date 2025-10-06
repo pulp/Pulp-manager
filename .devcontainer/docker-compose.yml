@@ -15,8 +15,8 @@ services:
       DB_USER: pulp-manager
       DB_PASSWORD: pulp-manager
       JWT_SECRET: test_secret
-      PULP_MANAGER_CONFIG_PATH: /workspace/local_config.ini
-      PULP_SYNC_CONFIG_PATH: /workspace/local_pulp_config.yml
+      PULP_MANAGER_CONFIG_PATH: /workspace/demo/config.ini
+      PULP_SYNC_CONFIG_PATH: /workspace/demo/pulp-config.yml
       Is_local: "true"
     networks:
       - pulp-devcontainer-net

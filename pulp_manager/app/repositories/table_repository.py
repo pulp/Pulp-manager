@@ -660,10 +660,17 @@ class TableRepository(ITableRepository):
         :return: list
         """
 
-        result = self.db.scalars(
-            insert(self.__model__).returning(self.__model__), entities
-        )
-        return result.all()
+        # Create model instances from dictionaries
+        new_entities = []
+        for entity_dict in entities:
+            new_entity = self.__model__(**entity_dict)
+            self.db.add(new_entity)
+            new_entities.append(new_entity)
+
+        # Flush to get the IDs assigned
+        self.db.flush()
+
+        return new_entities
 
     def update(self, entity, **kwargs):
         """Updates existing entity in db but does not commit
