@@ -14,8 +14,7 @@ on:
   workflow_call:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: pulp-manager
 
 jobs:
   build-and-push:
@@ -35,63 +34,107 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
+      - name: Determine registries to push to
+        id: registries
+        run: |
+          # Always include ghcr.io
+          registries="ghcr.io"
+
+          # Add docker.io and quay.io for release tags
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            registries="ghcr.io docker.io quay.io"
+          fi
+
+          echo "registries=${registries}" >> $GITHUB_OUTPUT
+          echo "Will push to: ${registries}"
+
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify registry login
+      - name: Log in to Docker Hub
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_BOT_USERNAME }}
+          password: ${{ secrets.DOCKER_BOT_PASSWORD }}
+
+      - name: Log in to Quay.io
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_BOT_USERNAME }}
+          password: ${{ secrets.QUAY_BOT_PASSWORD }}
+
+      - name: Determine tags
+        id: tags
         run: |
-          echo "✓ Successfully authenticated to ${{ env.REGISTRY }}"
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            echo "ℹ️  PR build: Image will be built but not pushed to registry"
+          tags=""
+
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Release tag (e.g., v1.2.3)
+            version="${{ github.ref_name }}"
+            version="${version#v}"  # Remove 'v' prefix
+            major=$(echo $version | cut -d. -f1)
+            minor=$(echo $version | cut -d. -f1-2)
+            tags="${version} ${minor} ${major} latest"
+          elif [ "${{ github.ref_name }}" == "main" ]; then
+            # Main branch
+            tags="main latest"
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            # PR
+            tags="pr-${{ github.event.pull_request.number }}"
           else
-            echo "ℹ️  Image will be built and pushed to registry"
+            # Other branches
+            tags="${{ github.ref_name }}"
           fi
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            # Tag with 'latest' on main branch
-            type=raw,value=latest,enable={{is_default_branch}}
-            # Tag with version on release tags (e.g., v1.2.3 -> 1.2.3)
-            type=semver,pattern={{version}}
-            # Tag with major.minor on release tags (e.g., v1.2.3 -> 1.2)
-            type=semver,pattern={{major}}.{{minor}}
-            # Tag with major on release tags (e.g., v1.2.3 -> 1)
-            type=semver,pattern={{major}}
-            # Tag with PR number on pull requests
-            type=ref,event=pr,prefix=pr-
-            # Tag with branch name on branch pushes
-            type=ref,event=branch
-            # Tag with commit SHA for traceability
-            type=sha,format=short
-          labels: |
-            org.opencontainers.image.title=Pulp Manager
-            org.opencontainers.image.description=FastAPI-based orchestration and management for multiple Pulp 3 servers
-            org.opencontainers.image.vendor=G-Research
+          # Add SHA tag for traceability
+          sha_short=$(echo ${{ github.sha }} | cut -c1-7)
+          tags="${tags} sha-${sha_short}"
 
-      - name: Build and push Docker image
+          echo "tags=${tags}" >> $GITHUB_OUTPUT
+          echo "Will use tags: ${tags}"
+
+      - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          push: false
+          load: true
+          tags: pulp/${{ env.IMAGE_NAME }}:ci
+          labels: |
+            org.opencontainers.image.title=Pulp Manager
+            org.opencontainers.image.description=FastAPI-based orchestration and management for multiple Pulp 3 servers
+            org.opencontainers.image.vendor=Pulp
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+
+      - name: Push to registries
+        if: github.event_name != 'pull_request'
+        run: |
+          for registry in ${{ steps.registries.outputs.registries }}; do
+            echo "Pushing to ${registry}..."
+            for tag in ${{ steps.tags.outputs.tags }}; do
+              echo "  Tagging and pushing ${registry}/pulp/${{ env.IMAGE_NAME }}:${tag}"
+              docker tag pulp/${{ env.IMAGE_NAME }}:ci ${registry}/pulp/${{ env.IMAGE_NAME }}:${tag}
+              docker push ${registry}/pulp/${{ env.IMAGE_NAME }}:${tag}
+            done
+          done
 
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.meta.outputs.digest }}
+          subject-name: ghcr.io/pulp/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ hashFiles('Dockerfile') }}
           push-to-registry: true
