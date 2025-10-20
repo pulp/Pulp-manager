@@ -67,8 +67,10 @@ jobs:
             type=semver,pattern={{major}}
             # Tag with PR number on pull requests
             type=ref,event=pr,prefix=pr-
+            # Tag with branch name on branch pushes
+            type=ref,event=branch
             # Tag with commit SHA for traceability
-            type=sha,prefix={{branch}}-,format=short
+            type=sha,format=short
           labels: |
             org.opencontainers.image.title=Pulp Manager
             org.opencontainers.image.description=FastAPI-based orchestration and management for multiple Pulp 3 servers
