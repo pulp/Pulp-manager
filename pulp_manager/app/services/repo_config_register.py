@@ -157,6 +157,24 @@ class RepoConfigRegister(PulpServerService):
 
         return repo_config
 
+    def _apply_repo_name_prefix(self, name: str, root_path: str) -> str:
+        """Applies the appropriate prefix to a repo name based on whether it's remote or internal.
+
+        :param name: The repo name
+        :type name: str
+        :param root_path: The root directory path containing the repo config file
+        :type root_path: str
+        :return: The repo name with appropriate prefix applied
+        :rtype: str
+        """
+        if "remote" in root_path and not name.startswith("ext-"):
+            return f"ext-{name}"
+        elif "internal" in root_path:
+            prefix = CONFIG["pulp"]["internal_package_prefix"]
+            if not name.startswith(prefix):
+                return f"{prefix}{name}"
+        return name
+
     def _parse_repo_config_files(self, repo_config_dir: str, regex_include: str,
             regex_exclude: str):
         """Parses the repo configs in the given repo_config_dir and returns a list of dicts
@@ -180,10 +198,7 @@ class RepoConfigRegister(PulpServerService):
                         repo_config = json.loads(repo_config_file.read())
                         name = repo_config["name"]
 
-                    if "remote" in root and not name.startswith("ext-"):
-                        name = f"ext-{name}"
-                    elif "internal" in root and not name.startswith(CONFIG["pulp"]["internal_package_prefix"]):
-                        name = f"{CONFIG['pulp']['internal_package_prefix']}{name}"
+                    name = self._apply_repo_name_prefix(name, root)
 
                     if regex_exclude and re.search(regex_exclude, name):
                         continue
