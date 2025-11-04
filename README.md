@@ -183,7 +183,8 @@ internal_domains=example.com
 git_repo_config=https://git.example.com/Pulp-Repo-Config
 git_repo_config_dir=repo_config
 password=password
-internal_package_prefix=corp_
+internal_repo_prefix=corp-
+external_repo_prefix=ext-
 package_name_replacement_pattern=
 package_name_replacement_rule=
 remote_tls_validation=true
@@ -248,8 +249,11 @@ Settings to apply to all pulp servers
   servers
 - `git_repo_config_dir`: Directory in `git_repo_config` which contains
   the pulp repo config
-- `internal_package_prefix`: Prefix for indicating an internal package uploaded 
-  directly to Pulp primary (no remote URL).
+- `internal_repo_prefix`: Prefix applied to a repo name when
+  uploaded directly to Pulp primary (no remote URL). Leave blank or
+  omit to retain original name.
+- `external_repo_prefix`: Prefix for applied to a repo name when it
+  has remote URL. Leave blank or omit to retain original name.
 - `package_name_replacement_pattern`: Regex for matching packages to be
   renamed. Use named matching groups for use in the format rule.
 - `package_name_replacement_rule`: The new name pattern assigned to packages
