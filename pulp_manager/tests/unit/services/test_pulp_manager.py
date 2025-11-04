@@ -12,6 +12,7 @@ from pulp3_bindings.pulp3.resources import (DebDistribution, DebRemote,
                                             RpmRemote, RpmRepository,
                                             SigningService)
 from pulp3_bindings.pulp3.resources import Task as Pulp3Task
+from pulp_manager.app.config import CONFIG
 from pulp_manager.app.database import engine, session
 from pulp_manager.app.exceptions import PulpManagerError, PulpManagerValueError
 from pulp_manager.app.models import PulpServer
@@ -948,3 +949,43 @@ class TestPulpManager:
 
         self.pulp_manager.add_repos_from_pulp_server("source", None, None)
         assert mock_create_or_update_repository_source_pulp_server.call_count == 2
+
+    def test_process_package_name_no_pattern(self):
+        """Tests that when no pattern is configured, the original name with base_url is returned
+        """
+        CONFIG["pulp"]["package_name_replacement_pattern"] = ""
+        CONFIG["pulp"]["package_name_replacement_rule"] = ""
+
+        result = self.pulp_manager._process_package_name("test-package", "http://example.com/")
+
+        assert result == "http://example.com/test-package"
+
+    def test_process_package_name_pattern_no_match(self):
+        """Tests that when pattern doesn't match, the original name with base_url is returned
+        """
+        CONFIG["pulp"]["package_name_replacement_pattern"] = "^prefix-(?P<name>.+)$"
+        CONFIG["pulp"]["package_name_replacement_rule"] = "{name}-suffix"
+
+        result = self.pulp_manager._process_package_name("no-prefix-package", "http://example.com/")
+
+        assert result == "http://example.com/no-prefix-package"
+
+    def test_process_package_name_pattern_match(self):
+        """Tests that when pattern matches, the transformed name with base_url is returned
+        """
+        CONFIG["pulp"]["package_name_replacement_pattern"] = "^prefix-(?P<name>.+)$"
+        CONFIG["pulp"]["package_name_replacement_rule"] = "{name}-suffix"
+
+        result = self.pulp_manager._process_package_name("prefix-mypackage", "http://example.com/")
+
+        assert result == "http://example.com/mypackage-suffix"
+
+    def test_process_package_name_complex_pattern(self):
+        """Tests package name transformation with multiple named groups
+        """
+        CONFIG["pulp"]["package_name_replacement_pattern"] = "^(?P<org>[a-z]+)-(?P<env>[a-z]+)-(?P<pkg>.+)$"
+        CONFIG["pulp"]["package_name_replacement_rule"] = "{env}/{org}/{pkg}"
+
+        result = self.pulp_manager._process_package_name("acme-prod-webserver", "http://example.com/")
+
+        assert result == "http://example.com/prod/acme/webserver"

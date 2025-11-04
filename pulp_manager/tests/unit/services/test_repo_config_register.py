@@ -8,6 +8,7 @@ import shutil
 import pytest
 from mock import mock_open, patch
 
+from pulp_manager.app.config import CONFIG
 from pulp_manager.app.database import engine, session
 from pulp_manager.app.services.repo_config_register import RepoConfigRegister
 
@@ -211,6 +212,40 @@ class TestRepoConfigRegister:
             )
             assert len(parsed_repo_configs) == 1
             assert parsed_repo_configs[0]["name"] == "ext-el8repo"
+
+    def test_apply_repo_name_prefix_remote(self):
+        """Tests that _apply_repo_name_prefix adds 'ext-' prefix for remote repos
+        """
+        CONFIG["pulp"]["internal_package_prefix"] = "int_"
+
+        # Remote repo without prefix
+        result = self.repo_config_register._apply_repo_name_prefix("myrepo", "/path/remote/el7")
+        assert result == "ext-myrepo"
+
+        # Remote repo already with prefix
+        result = self.repo_config_register._apply_repo_name_prefix("ext-myrepo", "/path/remote/el7")
+        assert result == "ext-myrepo"
+
+    def test_apply_repo_name_prefix_internal(self):
+        """Tests that _apply_repo_name_prefix adds internal_package_prefix for internal repos
+        """
+        CONFIG["pulp"]["internal_package_prefix"] = "int_"
+
+        # Internal repo without prefix
+        result = self.repo_config_register._apply_repo_name_prefix("myrepo", "/path/internal/el7")
+        assert result == "int_myrepo"
+
+        # Internal repo already with prefix
+        result = self.repo_config_register._apply_repo_name_prefix("int_myrepo", "/path/internal/el7")
+        assert result == "int_myrepo"
+
+    def test_apply_repo_name_prefix_neither(self):
+        """Tests that _apply_repo_name_prefix returns original name for repos not in remote or internal paths
+        """
+        CONFIG["pulp"]["internal_package_prefix"] = "int_"
+
+        result = self.repo_config_register._apply_repo_name_prefix("myrepo", "/path/other/el7")
+        assert result == "myrepo"
 
     @patch("pulp_manager.app.services.repo_config_register.Repo.clone_from")
     def test_create_repos_from_git_config_fail(self, mock_clone_from):

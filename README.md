@@ -248,6 +248,12 @@ Settings to apply to all pulp servers
   servers
 - `git_repo_config_dir`: Directory in `git_repo_config` which contains
   the pulp repo config
+- `internal_package_prefix`: Prefix for indicating an internal package uploaded 
+  directly to Pulp primary (no remote URL).
+- `package_name_replacement_pattern`: Regex for matching packages to be
+  renamed. Use named matching groups for use in the format rule.
+- `package_name_replacement_rule`: The new name pattern assigned to packages
+  which match the above. Reference named matching groups from above if needed.  
 - `remote_tls_validation`: Boolean whether to require TLS validation
   of remote hosts
 - `use_https_for_sync`: Boolean whether to use HTTPS for repository sync URLs.

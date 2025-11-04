@@ -180,7 +180,7 @@ class PulpManager(PulpServerService):
 
         package_rename_config = {
             "pattern": re.compile(pattern),
-            "replacement_rule": re.compile(replacement)
+            "replacement_rule": replacement
         }
         pattern = package_rename_config['pattern']
         replacement_rule = package_rename_config['replacement_rule']
