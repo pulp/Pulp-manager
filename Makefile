@@ -82,4 +82,4 @@ demo: venv
 	@. venv/bin/activate && \
 		pip install -q ansible 'pulp-glue>=0.29.0' 'pulp-glue-deb>=0.3.0,<0.4' && \
 		ansible-galaxy collection install pulp.squeezer 2>&1 | grep -v 'Installing' && \
-		ansible-playbook -i localhost, demo/ansible/playbook.yml
+		ansible-playbook -i localhost demo/ansible/playbook.yml
