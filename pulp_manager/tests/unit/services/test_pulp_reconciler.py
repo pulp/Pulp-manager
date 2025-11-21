@@ -176,6 +176,53 @@ class TestPulpReconciler:
         assert deb_repo1.remote_feed is None
         assert deb_repo1.distribution_href == "/pulp/api/v3/distributions/deb/apt/3"
 
+    @patch("pulp_manager.app.services.reconciler.new_pulp_client")
+    @patch("pulp_manager.app.services.reconciler.get_all_repos")
+    @patch("pulp_manager.app.services.reconciler.get_all_remotes")
+    @patch("pulp_manager.app.services.reconciler.get_all_distributions")
+    def test_get_pulp_server_repo_instances_with_repo_remote_href(
+            self, mock_get_all_distributions, mock_get_all_remotes,
+            mock_get_all_repos, mock_new_pulp_client):
+        """Tests that remotes are correctly linked when repo.remote href is set,
+        even when the remote name differs from the repo name
+        """
+
+        def new_pulp_client(pulp_server: PulpServer):
+            return Pulp3Client(pulp_server.name, username=pulp_server.username, password="test")
+
+        mock_new_pulp_client.side_effect = new_pulp_client
+
+        # Repo has remote attribute set to a remote with different name
+        mock_get_all_repos.return_value = [
+            Repository(**{
+                "pulp_href": "/pulp/api/v3/repositories/rpm/rpm/1",
+                "name": "my-repo",
+                "remote": "/pulp/api/v3/remotes/rpm/rpm/different-remote"
+            })
+        ]
+
+        mock_get_all_remotes.return_value = [
+            Remote(**{
+                "pulp_href": "/pulp/api/v3/remotes/rpm/rpm/different-remote",
+                "name": "some-other-name",
+                "url": "https://href-matched-feed.domain.com",
+                "policy": "immediate"
+            })
+        ]
+
+        mock_get_all_distributions.return_value = []
+
+        result = self.pulp_reconciler._get_pulp_server_repo_instances()
+
+        assert len(result) == 1
+
+        # Test href-based remote lookup (repo.remote set to different-named remote)
+        my_repo = result["my-repo"]
+        assert my_repo.name == "my-repo"
+        assert my_repo.repo_href == "/pulp/api/v3/repositories/rpm/rpm/1"
+        assert my_repo.remote_href == "/pulp/api/v3/remotes/rpm/rpm/different-remote"
+        assert my_repo.remote_feed == "https://href-matched-feed.domain.com"
+
     def test_add_missing_repos(self):
         """Test that a list of repo instances get added to the db and a dict is returned
         containg the newly added entries

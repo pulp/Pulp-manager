@@ -64,25 +64,37 @@ class PulpReconciler(PulpServerService):
         distributions = get_all_distributions(client)
 
         repo_dict = {}
-        remote_dict = {}
+        remote_dict_by_href = {}
+        remote_dict_by_name = {}
         distribution_dict = {}
 
         for repo in repos:
             repo_dict[repo.name] = repo
 
         for remote in remotes:
-            remote_dict[remote.name] = remote
+            remote_dict_by_name[remote.name] = remote
+            remote_dict_by_href[remote.pulp_href] = remote
 
         for distribution in distributions:
             distribution_dict[distribution.name] = distribution
 
         repo_instances = {}
         for name, repo in repo_dict.items():
+            # Get remote info from repo.remote if available, otherwise fall back to name matching
+            remote_href = None
+            remote_feed = None
+            if repo.remote and repo.remote in remote_dict_by_href:
+                remote_href = remote_dict_by_href[repo.remote].pulp_href
+                remote_feed = remote_dict_by_href[repo.remote].url
+            elif name in remote_dict_by_name:
+                remote_href = remote_dict_by_name[name].pulp_href
+                remote_feed = remote_dict_by_name[name].url
+
             pulp_repo_instance = PulpRepoInstance(
                 name,
                 repo.pulp_href,
-                remote_dict[name].pulp_href if name in remote_dict else None,
-                remote_dict[name].url if name in remote_dict else None,
+                remote_href,
+                remote_feed,
                 distribution_dict[name].pulp_href if name in distribution_dict else None
             )
             repo_instances[name] = pulp_repo_instance
