@@ -1,7 +1,7 @@
 ---
 # Ansible playbook to set up Pulp Manager and Pulp Server demo environment
 
-- name: Setup Pulp Demo Environment
+- name: Setup Pulp Manager Demo Environment
   hosts: localhost
   connection: local
   gather_facts: false
@@ -151,36 +151,84 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Create int-demo-packages repository on all servers
+    - name: Create int-demo-packages repository on primary (no remote)
       shell: |
-        docker exec {{ item.container }} bash -c "
+        docker exec {{ pulp_primary.container }} bash -c "
           pulp deb repository show --name int-demo-packages 2>/dev/null || \
           pulp deb repository create --name int-demo-packages --description 'Internal demo repository base_url: int-demo-packages'
         "
-      loop: "{{ pulp_servers }}"
-      loop_control:
-        label: "{{ item.name }}"
 
-    - name: Create ext-small-repo repository on all servers
+    # Setup external demo repository (primary syncs from nginx.org, secondary syncs from primary)
+    - name: Create external demo remote on primary
       shell: |
-        docker exec {{ item.container }} bash -c "
-          pulp deb repository show --name ext-small-repo 2>/dev/null || \
-          pulp deb repository create --name ext-small-repo --description 'External demo repository base_url: ext-small-repo'
+        docker exec {{ pulp_primary.container }} bash -c "
+          pulp deb remote show --name demo-external 2>/dev/null || \
+          pulp deb remote create \
+            --name demo-external \
+            --url http://nginx.org/packages/debian/ \
+            --distribution bookworm \
+            --component nginx \
+            --architecture amd64
         "
-      loop: "{{ pulp_servers }}"
-      loop_control:
-        label: "{{ item.name }}"
 
-    # Setup package content on all servers
+    - name: Create ext-demo-packages repository on primary
+      shell: |
+        docker exec {{ pulp_primary.container }} bash -c "
+          pulp deb repository show --name ext-demo-packages 2>/dev/null || \
+          pulp deb repository create \
+            --name ext-demo-packages \
+            --remote demo-external \
+            --description 'External demo packages from nginx.org'
+        "
+
+    - name: Create demo remote on secondary pointing to primary
+      shell: |
+        docker exec {{ pulp_secondary.container }} bash -c "
+          pulp deb remote show --name demo-from-primary 2>/dev/null || \
+          pulp deb remote create \
+            --name demo-from-primary \
+            --url http://pulp-primary/pulp/content/ext-demo-packages/ \
+            --distribution bookworm \
+            --component nginx \
+            --architecture amd64
+        "
+
+    - name: Create ext-demo-packages repository on secondary
+      shell: |
+        docker exec {{ pulp_secondary.container }} bash -c "
+          pulp deb repository show --name ext-demo-packages 2>/dev/null || \
+          pulp deb repository create \
+            --name ext-demo-packages \
+            --remote demo-from-primary \
+            --description 'External demo packages synced from primary server'
+        "
+
+    # Setup package content on primary
     - name: Setup demo package on primary
       include_tasks: setup_demo_package.yml
       vars:
         pulp_server: "{{ pulp_primary }}"
 
-    - name: Setup demo package on secondary
-      include_tasks: setup_demo_package.yml
-      vars:
-        pulp_server: "{{ pulp_secondary }}"
+    # Setup int-demo-packages on secondary to sync from primary
+    - name: Create int-demo-packages remote on secondary pointing to primary
+      shell: |
+        docker exec {{ pulp_secondary.container }} bash -c "
+          pulp deb remote show --name int-from-primary 2>/dev/null || \
+          pulp deb remote create \
+            --name int-from-primary \
+            --url http://pulp-primary/pulp/content/int-demo-packages/ \
+            --distribution /
+        "
+
+    - name: Create int-demo-packages repository on secondary
+      shell: |
+        docker exec {{ pulp_secondary.container }} bash -c "
+          pulp deb repository show --name int-demo-packages 2>/dev/null || \
+          pulp deb repository create \
+            --name int-demo-packages \
+            --remote int-from-primary \
+            --description 'Internal demo repository synced from primary'
+        "
 
     - name: Trigger repository discovery on primary server
       uri:
@@ -199,8 +247,8 @@
         method: GET
       register: primary_sync_task
       until: primary_sync_task.json.state in ["completed", "failed"]
-      retries: 30
-      delay: 2
+      retries: 120
+      delay: 5
 
     - name: Trigger repository discovery on secondary server
       uri:
@@ -219,8 +267,8 @@
         method: GET
       register: secondary_sync_task
       until: secondary_sync_task.json.state in ["completed", "failed"]
-      retries: 30
-      delay: 2
+      retries: 120
+      delay: 5
 
     - name: Display completion message
       debug:
@@ -230,19 +278,8 @@
           - "Demo Setup Complete!"
           - "============================================"
           - ""
-          - "Available repositories on primary:"
-          - "  - ext-small-repo: {{ pulp_primary.url }}/pulp/content/ext-small-repo/"
-          - "  - int-demo-packages: {{ pulp_primary.url }}/pulp/content/int-demo-packages/"
-          - ""
-          - "Available repositories on secondary:"
-          - "  - ext-small-repo: {{ pulp_secondary.url }}/pulp/content/ext-small-repo/"
-          - "  - int-demo-packages: {{ pulp_secondary.url }}/pulp/content/int-demo-packages/"
-          - ""
           - "Pulp Manager API: {{ pulp_manager_url }}"
           - "RQ Dashboard: http://localhost:9181"
           - ""
-          - "To sync repositories from primary to secondary:"
-          - "  curl -X POST '{{ pulp_manager_url }}/v1/pulp_servers/2/sync_repos' \\"
-          - "    -H 'Content-Type: application/json' \\"
-          - "    -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 2, \"regex_include\": \"^int\", \"source_pulp_server_name\": \"pulp-primary:80\"}'"
+          - "See README.md for usage examples."
           - ""

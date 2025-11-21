@@ -143,8 +143,60 @@ components:
    ```bash
    make demo
    ```
-   
+
    When startup is finished, `docker ps` will show you the components, and all APIs will be listening.
+
+### Demo Environment Details
+
+Once the demo is running, you'll have access to:
+
+**Available repositories on primary (http://localhost:8000):**
+- `int-demo-packages`: http://localhost:8000/pulp/content/int-demo-packages/ (internal, no remote)
+- `ext-demo-packages`: http://localhost:8000/pulp/content/ext-demo-packages/ (syncs from nginx.org)
+
+**Available repositories on secondary (http://localhost:8001):**
+- `int-demo-packages`: http://localhost:8001/pulp/content/int-demo-packages/ (syncs from primary)
+- `ext-demo-packages`: http://localhost:8001/pulp/content/ext-demo-packages/ (syncs from primary)
+
+**Services:**
+- Pulp Manager API: http://localhost:8080
+- RQ Dashboard: http://localhost:9181
+
+### Demo Usage Examples
+
+**Upload a package to int-demo-packages on primary:**
+```bash
+# Upload content
+docker cp /path/to/package.deb demo-pulp-primary-1:/tmp/package.deb
+docker exec demo-pulp-primary-1 pulp deb content upload --file /tmp/package.deb --repository int-demo-packages
+
+# Create publication
+docker exec demo-pulp-primary-1 pulp deb publication create --repository int-demo-packages --simple
+
+# Update distribution (get publication href from above command)
+docker exec demo-pulp-primary-1 pulp deb distribution update --name int-demo-packages --publication <publication_href>
+```
+
+**Sync ext-demo-packages on primary from nginx.org:**
+```bash
+curl -X POST 'http://localhost:8080/v1/pulp_servers/1/sync_repos' \
+  -H 'Content-Type: application/json' \
+  -d '{"max_runtime": "3600", "max_concurrent_syncs": 2, "regex_include": "^ext-demo"}'
+```
+
+**Sync int-demo-packages from primary to secondary:**
+```bash
+curl -X POST 'http://localhost:8080/v1/pulp_servers/2/sync_repos' \
+  -H 'Content-Type: application/json' \
+  -d '{"max_runtime": "3600", "max_concurrent_syncs": 2, "regex_include": "^int-demo", "source_pulp_server_name": "pulp-primary:80"}'
+```
+
+**Sync ext-demo-packages from primary to secondary:**
+```bash
+curl -X POST 'http://localhost:8080/v1/pulp_servers/2/sync_repos' \
+  -H 'Content-Type: application/json' \
+  -d '{"max_runtime": "3600", "max_concurrent_syncs": 2, "regex_include": "^ext-demo", "source_pulp_server_name": "pulp-primary:80"}'
+```
 
 For detailed development setup, see the [Development
 Info](#development-info) section.
