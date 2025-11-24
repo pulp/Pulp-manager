@@ -245,7 +245,7 @@ class RepoConfigRegister(PulpServerService):
         task = self._task_crud.add(**{
             "name": f"{self._pulp_server_name} repo registration",
             "date_started": datetime.utcnow(),
-            "task_type": "repo_creation_from_config",
+            "task_type": "repo_creation_from_git",
             "state": "running",
             "worker_name": socket.gethostname(),
             "worker_job_id": self._job_id,

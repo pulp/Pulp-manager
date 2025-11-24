@@ -1,14 +1,20 @@
 pulp_servers:
   pulp-primary:80:
     credentials: local
+    repo_config_registration:
+      schedule: "* * * * *"  # Run immediately for demo setup
+      max_runtime: "300"
     repo_groups:
       default:
         schedule: "0 * * * *"  # Every hour
         max_concurrent_syncs: 1
         max_runtime: "1h"
-    
+
   pulp-secondary:80:
     credentials: local
+    repo_config_registration:
+      schedule: "* * * * *"  # Run immediately for demo setup
+      max_runtime: "300"
     repo_groups:
       external_repos:
         schedule: "*/5 * * * *"  # Every 5 minutes

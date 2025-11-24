@@ -248,12 +248,96 @@ class TestRepoConfigRegister:
         assert result == "myrepo"
 
     @patch("pulp_manager.app.services.repo_config_register.Repo.clone_from")
-    def test_create_repos_from_git_config_fail(self, mock_clone_from):
+    def test_create_repos_from_config_fail(self, mock_clone_from):
         """Tests logic flow that if they are errors an exception is raised
         """
 
         mock_clone_from.side_effect = Exception("an error")
 
-
         with pytest.raises(Exception):
-            self.repo_config_register.create_repos_from_git_config()
+            self.repo_config_register.create_repos_from_config()
+
+    @patch("pulp_manager.app.services.repo_config_register.os.path.isfile")
+    @patch("pulp_manager.app.services.repo_config_register.os.walk")
+    def test_create_repos_from_config_with_local_dir(self, mock_os_walk, mock_isfile):
+        """Tests that create_repos_from_config uses local directory when provided
+        and does not attempt to clone from git
+        """
+
+        mock_isfile.return_value = True
+        mock_os_walk.return_value = [
+            ('/local/config/remote', (), ('test-repo.json',)),
+        ]
+
+        mock_open_data = {
+            "/local/config/remote/test-repo.json": json.dumps({
+                "name": "test-repo",
+                "url": "https://example.com/repo",
+                "owner": "Test Owner",
+                "description": "Test repo",
+                "repo_type": "external",
+                "content_repo_type": "rpm",
+                "base_url": "test-x86_64"
+            }),
+            "/local/config/remote/global.json": json.dumps({
+                "proxy": "http://proxy.example.com:8080"
+            })
+        }
+
+        def open_side_effect(name, mode=None):
+            return mock_open(read_data=mock_open_data.get(name, 'Default data'))()
+
+        with patch("builtins.open", side_effect=open_side_effect):
+            # Should NOT clone from git when local_repo_config_dir is provided
+            with patch("pulp_manager.app.services.repo_config_register.Repo.clone_from") as mock_clone:
+                self.repo_config_register.create_repos_from_config(
+                    local_repo_config_dir="/local/config"
+                )
+                # Verify git clone was NOT called
+                mock_clone.assert_not_called()
+                # Verify repo was created via the mocked PulpManager
+                assert self.repo_config_register._pulp_manager.create_or_update_repository.called
+
+    @patch("pulp_manager.app.services.repo_config_register.os.path.isfile")
+    @patch("pulp_manager.app.services.repo_config_register.os.walk")
+    @patch("pulp_manager.app.services.repo_config_register.Repo.clone_from")
+    def test_create_repos_from_config_with_git(self, mock_clone_from, mock_os_walk, mock_isfile):
+        """Tests that create_repos_from_config clones from git when local_repo_config_dir is not provided
+        """
+
+        def clone_from(url, to_path):
+            """Creates the repo_config directory in the to_path"""
+            repo_config_path = os.path.join(to_path, "repo_config")
+            os.mkdir(repo_config_path)
+
+        mock_clone_from.side_effect = clone_from
+        mock_isfile.return_value = True
+        mock_os_walk.return_value = [
+            ('/tmp/pulp_manager123/repo_config/remote', (), ('test-repo.json',)),
+        ]
+
+        mock_open_data = {
+            "/tmp/pulp_manager123/repo_config/remote/test-repo.json": json.dumps({
+                "name": "test-repo",
+                "url": "https://example.com/repo",
+                "owner": "Test Owner",
+                "description": "Test repo",
+                "repo_type": "external",
+                "content_repo_type": "rpm",
+                "base_url": "test-x86_64"
+            }),
+            "/tmp/pulp_manager123/repo_config/remote/global.json": json.dumps({
+                "proxy": "http://proxy.example.com:8080"
+            })
+        }
+
+        def open_side_effect(name, mode=None):
+            return mock_open(read_data=mock_open_data.get(name, 'Default data'))()
+
+        with patch("builtins.open", side_effect=open_side_effect):
+            # Should clone from git when local_repo_config_dir is NOT provided
+            self.repo_config_register.create_repos_from_config()
+            # Verify git clone WAS called
+            mock_clone_from.assert_called_once()
+            # Verify repo was created via the mocked PulpManager
+            assert self.repo_config_register._pulp_manager.create_or_update_repository.called

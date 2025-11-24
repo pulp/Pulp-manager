@@ -234,6 +234,8 @@ banned_package_regex=bannedexample|another
 internal_domains=example.com
 git_repo_config=https://git.example.com/Pulp-Repo-Config
 git_repo_config_dir=repo_config
+# Optional: Use local filesystem instead of git for repo configs (e.g., demo/dev)
+# local_repo_config_dir=/path/to/local/repo-config
 password=password
 internal_package_prefix=corp_
 package_name_replacement_pattern=
@@ -300,7 +302,10 @@ Settings to apply to all pulp servers
   servers
 - `git_repo_config_dir`: Directory in `git_repo_config` which contains
   the pulp repo config
-- `internal_package_prefix`: Prefix for indicating an internal package uploaded 
+- `local_repo_config_dir`: Optional local filesystem path to repo config
+  directory. If set, scheduled repo registration will read configs from
+  this path instead of cloning from `git_repo_config`.
+- `internal_package_prefix`: Prefix for indicating an internal package uploaded
   directly to Pulp primary (no remote URL).
 - `package_name_replacement_pattern`: Regex for matching packages to be
   renamed. Use named matching groups for use in the format rule.
