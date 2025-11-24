@@ -24,6 +24,38 @@
       - "{{ pulp_primary }}"
       - "{{ pulp_secondary }}"
 
+    # Repository configurations for primary server
+    primary_repos:
+      - name: int-demo-packages
+        description: "Internal demo repository base_url: int-demo-packages"
+        package_file: "{{ package_file }}"
+        publish: true
+      - name: ext-demo-packages
+        description: "External demo packages from nginx.org"
+        remote:
+          name: ext-demo-packages
+          url: "http://nginx.org/packages/debian/"
+          distribution: "bookworm"
+          component: "nginx"
+          architecture: "amd64"
+
+    # Repository configurations for secondary server
+    secondary_repos:
+      - name: int-demo-packages
+        description: "Internal demo repository synced from primary"
+        remote:
+          name: int-demo-packages
+          url: "http://pulp-primary/pulp/content/int-demo-packages/"
+          distribution: "/"
+      - name: ext-demo-packages
+        description: "External demo packages synced from primary server"
+        remote:
+          name: ext-demo-packages
+          url: "http://pulp-primary/pulp/content/ext-demo-packages/"
+          distribution: "bookworm"
+          component: "nginx"
+          architecture: "amd64"
+
   tasks:
     - name: Setup Docker network
       shell: docker network inspect pulp-net >/dev/null 2>&1 || docker network create pulp-net
@@ -151,84 +183,19 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Create int-demo-packages repository on primary (no remote)
-      shell: |
-        docker exec {{ pulp_primary.container }} bash -c "
-          pulp deb repository show --name int-demo-packages 2>/dev/null || \
-          pulp deb repository create --name int-demo-packages --description 'Internal demo repository base_url: int-demo-packages'
-        "
-
-    # Setup external demo repository (primary syncs from nginx.org, secondary syncs from primary)
-    - name: Create external demo remote on primary
-      shell: |
-        docker exec {{ pulp_primary.container }} bash -c "
-          pulp deb remote show --name demo-external 2>/dev/null || \
-          pulp deb remote create \
-            --name demo-external \
-            --url http://nginx.org/packages/debian/ \
-            --distribution bookworm \
-            --component nginx \
-            --architecture amd64
-        "
-
-    - name: Create ext-demo-packages repository on primary
-      shell: |
-        docker exec {{ pulp_primary.container }} bash -c "
-          pulp deb repository show --name ext-demo-packages 2>/dev/null || \
-          pulp deb repository create \
-            --name ext-demo-packages \
-            --remote demo-external \
-            --description 'External demo packages from nginx.org'
-        "
-
-    - name: Create demo remote on secondary pointing to primary
-      shell: |
-        docker exec {{ pulp_secondary.container }} bash -c "
-          pulp deb remote show --name demo-from-primary 2>/dev/null || \
-          pulp deb remote create \
-            --name demo-from-primary \
-            --url http://pulp-primary/pulp/content/ext-demo-packages/ \
-            --distribution bookworm \
-            --component nginx \
-            --architecture amd64
-        "
-
-    - name: Create ext-demo-packages repository on secondary
-      shell: |
-        docker exec {{ pulp_secondary.container }} bash -c "
-          pulp deb repository show --name ext-demo-packages 2>/dev/null || \
-          pulp deb repository create \
-            --name ext-demo-packages \
-            --remote demo-from-primary \
-            --description 'External demo packages synced from primary server'
-        "
-
-    # Setup package content on primary
-    - name: Setup demo package on primary
-      include_tasks: setup_demo_package.yml
+    # Setup repositories on primary server
+    - name: Setup repositories on primary
+      include_tasks: setup_demo_repos.yml
       vars:
         pulp_server: "{{ pulp_primary }}"
+        repos: "{{ primary_repos }}"
 
-    # Setup int-demo-packages on secondary to sync from primary
-    - name: Create int-demo-packages remote on secondary pointing to primary
-      shell: |
-        docker exec {{ pulp_secondary.container }} bash -c "
-          pulp deb remote show --name int-from-primary 2>/dev/null || \
-          pulp deb remote create \
-            --name int-from-primary \
-            --url http://pulp-primary/pulp/content/int-demo-packages/ \
-            --distribution /
-        "
-
-    - name: Create int-demo-packages repository on secondary
-      shell: |
-        docker exec {{ pulp_secondary.container }} bash -c "
-          pulp deb repository show --name int-demo-packages 2>/dev/null || \
-          pulp deb repository create \
-            --name int-demo-packages \
-            --remote int-from-primary \
-            --description 'Internal demo repository synced from primary'
-        "
+    # Setup repositories on secondary server
+    - name: Setup repositories on secondary
+      include_tasks: setup_demo_repos.yml
+      vars:
+        pulp_server: "{{ pulp_secondary }}"
+        repos: "{{ secondary_repos }}"
 
     - name: Trigger repository discovery on primary server
       uri:
