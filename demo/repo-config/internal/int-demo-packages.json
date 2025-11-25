@@ -1,6 +1,6 @@
 {
   "name": "int-demo-packages",
-  "description": "Internal demo repository base_url: int-demo-packages",
+  "description": "Internal demo repository",
   "owner": "pulp-primary",
   "base_url": "int-demo-packages",
   "content_repo_type": "deb",

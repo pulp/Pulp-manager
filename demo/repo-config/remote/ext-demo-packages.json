@@ -5,7 +5,7 @@
   "base_url": "ext-demo-packages",
   "content_repo_type": "deb",
   "url": "http://nginx.org/packages/debian/",
-  "distribution": "bookworm",
-  "component": "nginx",
-  "architecture": "amd64"
+  "releases": "bookworm",
+  "components": "nginx",
+  "architectures": "amd64"
 }
