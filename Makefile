@@ -3,26 +3,7 @@
 ROOT_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
 PKG_NAME := pulp_manager
 
-.PHONY : h help
-h help:
-	@printf "%s\n" "Usage: make <target>"
-	@printf "\n%s\n" "Targets:"
-	@printf "    %-22s%s\n" \
-	"h|help"	"Print this help" \
-	"t|test"      	"Run all tests" \
-	"l|lint"        "Run lint" \
-	"c|cover"       "Run coverage for all tests" \
-	"venv"          "Create virtualenv" \
-	"clean"         "Clean workspace" \
-	"run-pulp-manager" "Run Pulp Manager services for development" \
-	"run-pulp3"     "Run Pulp 3 primary and secondary servers" \
-	"demo"          "Run complete demo environment"
-
-.PHONY : l lint
-l lint: venv
-	@echo "# pylint"; \
-	./venv/bin/pylint --rcfile ./pylint.rc  pulp_manager/
-
+.PHONY : check-devcontainer
 check-devcontainer:
 	@if [ -z "$$Is_local" ] && [ -z "$$DEVCONTAINER" ]; then \
 		echo "ERROR: Tests must be run in devcontainer environment!"; \
@@ -37,6 +18,28 @@ check-devcontainer:
 		exit 1; \
 	fi
 
+.PHONY : h help
+h help:
+	@printf "%s\n" "Usage: make <target>"
+	@printf "\n%s\n" "Targets:"
+	@printf "    %-22s%s\n" \
+	"h|help"	"Print this help" \
+	"t|test"      	"Run all tests" \
+	"l|lint"        "Run lint" \
+	"c|cover"       "Run coverage for all tests" \
+	"venv"          "Create virtualenv" \
+	"ansibe"        "Install ansible in venv" \
+	"clean"         "Clean workspace" \
+	"run-pulp-manager" "Run Pulp Manager services for development" \
+	"run-pulp3"     "Run Pulp 3 primary and secondary servers" \
+	"demo"          "Run complete demo environment" \
+        "demo-repo-sync" "Upload package and run sync tasks in demo env"
+
+.PHONY : l lint
+l lint: venv
+	@echo "# pylint"; \
+	./venv/bin/pylint --rcfile ./pylint.rc  pulp_manager/
+
 .PHONY : t test
 t test: venv check-devcontainer
 	@./venv/bin/pytest -v
@@ -49,11 +52,16 @@ c cover: venv check-devcontainer
 	coverage html
 
 .PHONY : venv
-venv: requirements.txt
+venv:
 	@python3 -m venv venv
 	@. venv/bin/activate; \
-	pip install --upgrade pip; \
-	pip install -r requirements.txt
+	pip install --upgrade pip -q; \
+	pip install -r requirements.txt -q; 
+
+.PHONY : ansible
+ansible: venv
+	@. venv/bin/activate && \
+		pip install -q ansible 'pulp-glue>=0.29.0' 'pulp-glue-deb>=0.3.0,<0.4'
 
 .PHONY : run-pulp-manager
 run-pulp-manager:
@@ -77,9 +85,14 @@ run-pulp3:
 	@echo "Secondary: http://localhost:8001"
 
 .PHONY : demo
-demo: venv
+demo: venv ansible
 	@echo "Setting up demo environment..."
 	@. venv/bin/activate && \
-		pip install -q ansible 'pulp-glue>=0.29.0' 'pulp-glue-deb>=0.3.0,<0.4' && \
-		ansible-galaxy collection install pulp.squeezer 2>&1 | grep -v 'Installing' && \
 		ansible-playbook -i localhost demo/ansible/playbook.yml
+
+.PHONY : demo-repo-sync
+demo-repo-sync: venv ansible
+	@echo "Setting up demo environment..."
+	@. venv/bin/activate && \
+		ansible-playbook -i localhost demo/ansible/setup_repos.yml
+

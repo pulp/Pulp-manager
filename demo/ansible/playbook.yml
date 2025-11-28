@@ -151,66 +151,28 @@
         label: "{{ item.name }}"
 
     - name: Wait for repos to be created on primary server
-      shell: docker exec {{ pulp_primary.container }} pulp deb repository list --name int-demo-packages --limit 1 2>/dev/null | grep -q 'int-demo-packages'
+      uri:
+        url: "{{ pulp_manager_url }}/v1/pulp_servers/1/repos"
+        method: GET
       register: primary_repo_check
-      until: primary_repo_check.rc == 0
-      retries: 90
+      until: primary_repo_check.status == 200 and 'int-demo-packages' in (primary_repo_check.json | string)
+      retries: 35
       delay: 2
-      failed_when: false
 
     - name: Wait for repos to be created on secondary server
-      shell: docker exec {{ pulp_secondary.container }} pulp deb repository list --name int-demo-packages --limit 1 2>/dev/null | grep -q 'int-demo-packages'
+      uri:
+        url: "{{ pulp_manager_url }}/v1/pulp_servers/2/repos"
+        method: GET
       register: secondary_repo_check
-      until: secondary_repo_check.rc == 0
-      retries: 90
+      until: secondary_repo_check.status == 200 and 'int-demo-packages' in (secondary_repo_check.json | string)
+      retries: 35
       delay: 2
-      failed_when: false
 
     - name: Display repo creation status
       debug:
         msg:
-          - "Primary server repos: {{ 'Created' if primary_repo_check.rc == 0 else 'Not found' }}"
-          - "Secondary server repos: {{ 'Created' if secondary_repo_check.rc == 0 else 'Not found' }}"
-
-    - name: Trigger repository discovery and sync on primary server
-      uri:
-        url: "{{ pulp_manager_url }}/v1/pulp_servers/1/sync_repos"
-        method: POST
-        body_format: json
-        body:
-          max_runtime: "3600"
-          max_concurrent_syncs: 5
-        status_code: [200, 201]
-      register: primary_sync
-
-    - name: Wait for primary server repository discovery
-      uri:
-        url: "{{ pulp_manager_url }}/v1/tasks/{{ primary_sync.json.id }}"
-        method: GET
-      register: primary_sync_task
-      until: primary_sync_task.json.state in ["completed", "failed"]
-      retries: 120
-      delay: 5
-
-    - name: Trigger repository discovery on secondary server
-      uri:
-        url: "{{ pulp_manager_url }}/v1/pulp_servers/2/sync_repos"
-        method: POST
-        body_format: json
-        body:
-          max_runtime: "3600"
-          max_concurrent_syncs: 5
-        status_code: [200, 201]
-      register: secondary_sync
-
-    - name: Wait for secondary server repository discovery
-      uri:
-        url: "{{ pulp_manager_url }}/v1/tasks/{{ secondary_sync.json.id }}"
-        method: GET
-      register: secondary_sync_task
-      until: secondary_sync_task.json.state in ["completed", "failed"]
-      retries: 120
-      delay: 5
+          - "Primary server: Repos found"
+          - "Secondary server: Repos found"
 
     - name: Display completion message
       debug:
@@ -224,10 +186,9 @@
           - "RQ Dashboard: http://localhost:9181"
           - ""
           - "Repositories have been created from demo/repo-config/"
-          - "and discovery/sync tasks have been triggered."
           - ""
-          - "To upload demo package to int-demo-packages, run:"
-          - "  ansible-playbook demo/ansible/setup_internal_package.yml"
+          - "Next step - sync repos and upload demo package:"
+          - "  ansible-playbook demo/ansible/setup_repos.yml"
           - ""
           - "See README.md for usage examples."
           - ""
