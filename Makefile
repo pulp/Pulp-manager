@@ -28,7 +28,7 @@ h help:
 	"l|lint"        "Run lint" \
 	"c|cover"       "Run coverage for all tests" \
 	"venv"          "Create virtualenv" \
-	"ansibe"        "Install ansible in venv" \
+	"ansible"       "Install ansible in venv" \
 	"clean"         "Clean workspace" \
 	"run-pulp-manager" "Run Pulp Manager services for development" \
 	"run-pulp3"     "Run Pulp 3 primary and secondary servers" \

@@ -44,21 +44,8 @@ class RepoConfigRegister(PulpServerService):
         job = get_current_job()
         self._job_id = job.id if job else None
 
-    def _clone_pulp_repo_config(self):
-        """Creates a temporary directory to clone the repo config defined in CONFIG.
-        Returns the path to the directory that was created
-
-        :return: str
-        """
-
-        temp_dir = tempfile.mkdtemp(prefix="pulp_manager", dir="/tmp")
-        log.info(f"created {temp_dir} to clone repo config into")
-        Repo.clone_from(CONFIG["pulp"]["git_repo_config"], temp_dir)
-        log.info(f"clone into {temp_dir} completed")
-        return os.path.join(temp_dir, CONFIG["pulp"]["git_repo_config_dir"])
-
     @contextmanager
-    def _get_config_directory(self, local_path=None):
+    def _get_repo_config_directory(self, local_path=None):
         """Context manager that yields a config directory path.
 
         If local_path is provided, yields it directly (no cleanup needed).
@@ -258,7 +245,7 @@ class RepoConfigRegister(PulpServerService):
         self._db.commit()
 
         try:
-            with self._get_config_directory(local_repo_config_dir) as repo_config_dir:
+            with self._get_repo_config_directory(local_repo_config_dir) as repo_config_dir:
                 repo_configs = self._parse_repo_config_files(
                     repo_config_dir, regex_include, regex_exclude
                 )
