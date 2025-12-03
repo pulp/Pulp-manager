@@ -181,13 +181,21 @@ class RepoConfigRegister(PulpServerService):
         :return: The repo name with appropriate prefix applied
         :rtype: str
         """
-        if "remote" in root_path and not name.startswith("ext-"):
-            return f"ext-{name}"
+
+        prefix_config_key = ""
+        if "remote" in root_path:
+            prefix_config_key = "external_repo_prefix"
         elif "internal" in root_path:
-            prefix = CONFIG["pulp"]["internal_package_prefix"]
-            if not name.startswith(prefix):
-                return f"{prefix}{name}"
-        return name
+            prefix_config_key = "internal_repo_prefix"
+
+        try:
+            prefix = CONFIG["pulp"][prefix_config_key]
+        except KeyError:
+            prefix = ""
+            
+        if name.startswith(prefix):
+            return name
+        return f"{prefix}{name}"
 
     def _parse_repo_config_files(self, repo_config_dir: str, regex_include: str,
             regex_exclude: str):

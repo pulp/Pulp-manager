@@ -214,9 +214,9 @@ class TestRepoConfigRegister:
             assert parsed_repo_configs[0]["name"] == "ext-el8repo"
 
     def test_apply_repo_name_prefix_remote(self):
-        """Tests that _apply_repo_name_prefix adds 'ext-' prefix for remote repos
+        """Tests that _apply_repo_name_prefix adds external_repo_prefix for remote repos
         """
-        CONFIG["pulp"]["internal_package_prefix"] = "int_"
+        CONFIG["pulp"]["external_repo_prefix"] = "ext-"
 
         # Remote repo without prefix
         result = self.repo_config_register._apply_repo_name_prefix("myrepo", "/path/remote/el7")
@@ -226,10 +226,19 @@ class TestRepoConfigRegister:
         result = self.repo_config_register._apply_repo_name_prefix("ext-myrepo", "/path/remote/el7")
         assert result == "ext-myrepo"
 
-    def test_apply_repo_name_prefix_internal(self):
-        """Tests that _apply_repo_name_prefix adds internal_package_prefix for internal repos
+    def test_apply_repo_name_prefix_remote_blank_prefix(self):
+        """Tests that _apply_repo_name_prefix returns original name when external_repo_prefix is blank
         """
-        CONFIG["pulp"]["internal_package_prefix"] = "int_"
+        CONFIG["pulp"]["external_repo_prefix"] = ""
+
+        # Remote repo should not get any prefix when config is blank
+        result = self.repo_config_register._apply_repo_name_prefix("myrepo", "/path/remote/el7")
+        assert result == "myrepo"
+
+    def test_apply_repo_name_prefix_internal(self):
+        """Tests that _apply_repo_name_prefix adds internal_repo_prefix for internal repos
+        """
+        CONFIG["pulp"]["internal_repo_prefix"] = "int_"
 
         # Internal repo without prefix
         result = self.repo_config_register._apply_repo_name_prefix("myrepo", "/path/internal/el7")
@@ -239,10 +248,19 @@ class TestRepoConfigRegister:
         result = self.repo_config_register._apply_repo_name_prefix("int_myrepo", "/path/internal/el7")
         assert result == "int_myrepo"
 
+    def test_apply_repo_name_prefix_internal_blank_prefix(self):
+        """Tests that _apply_repo_name_prefix returns original name when internal_repo_prefix is blank
+        """
+        CONFIG["pulp"]["internal_repo_prefix"] = ""
+
+        # Internal repo should not get any prefix when config is blank
+        result = self.repo_config_register._apply_repo_name_prefix("myrepo", "/path/internal/el7")
+        assert result == "myrepo"
+
     def test_apply_repo_name_prefix_neither(self):
         """Tests that _apply_repo_name_prefix returns original name for repos not in remote or internal paths
         """
-        CONFIG["pulp"]["internal_package_prefix"] = "int_"
+        CONFIG["pulp"]["internal_repo_prefix"] = "int_"
 
         result = self.repo_config_register._apply_repo_name_prefix("myrepo", "/path/other/el7")
         assert result == "myrepo"

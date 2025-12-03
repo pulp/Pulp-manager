@@ -1,0 +1,139 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+      - '[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+  workflow_call:
+
+env:
+  IMAGE_NAME: pulp-manager
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Determine registries to push to
+        id: registries
+        run: |
+          # Always include ghcr.io
+          registries="ghcr.io"
+
+          # Add docker.io and quay.io for release tags
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            registries="ghcr.io docker.io quay.io"
+          fi
+
+          echo "registries=${registries}" >> $GITHUB_OUTPUT
+          echo "Will push to: ${registries}"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_BOT_USERNAME }}
+          password: ${{ secrets.DOCKER_BOT_PASSWORD }}
+
+      - name: Log in to Quay.io
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_BOT_USERNAME }}
+          password: ${{ secrets.QUAY_BOT_PASSWORD }}
+
+      - name: Determine tags
+        id: tags
+        run: |
+          tags=""
+
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            # Release tag (e.g., v1.2.3)
+            version="${{ github.ref_name }}"
+            version="${version#v}"  # Remove 'v' prefix
+            major=$(echo $version | cut -d. -f1)
+            minor=$(echo $version | cut -d. -f1-2)
+            tags="${version} ${minor} ${major} latest"
+          elif [ "${{ github.ref_name }}" == "main" ]; then
+            # Main branch
+            tags="main latest"
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            # PR
+            tags="pr-${{ github.event.pull_request.number }}"
+          else
+            # Other branches
+            tags="${{ github.ref_name }}"
+          fi
+
+          # Add SHA tag for traceability
+          sha_short=$(echo ${{ github.sha }} | cut -c1-7)
+          tags="${tags} sha-${sha_short}"
+
+          echo "tags=${tags}" >> $GITHUB_OUTPUT
+          echo "Will use tags: ${tags}"
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          load: true
+          tags: pulp/${{ env.IMAGE_NAME }}:ci
+          labels: |
+            org.opencontainers.image.title=Pulp Manager
+            org.opencontainers.image.description=FastAPI-based orchestration and management for multiple Pulp 3 servers
+            org.opencontainers.image.vendor=Pulp
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Push to registries
+        run: |
+          for registry in ${{ steps.registries.outputs.registries }}; do
+            echo "Pushing to ${registry}..."
+            for tag in ${{ steps.tags.outputs.tags }}; do
+              echo "  Tagging and pushing ${registry}/pulp/${{ env.IMAGE_NAME }}:${tag}"
+              docker tag pulp/${{ env.IMAGE_NAME }}:ci ${registry}/pulp/${{ env.IMAGE_NAME }}:${tag}
+              docker push ${registry}/pulp/${{ env.IMAGE_NAME }}:${tag}
+            done
+          done
+
+      - name: Generate artifact attestation
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ghcr.io/pulp/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ hashFiles('Dockerfile') }}
+          push-to-registry: true

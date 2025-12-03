@@ -1,6 +1,43 @@
-demo/assets/keys/gpg/
-demo/assets/certs/
+# Version control
+.git/
+.gitignore
+.github/
+
+# Development environment
+.devcontainer/
 .claude/
-.coverage
 venv/
+
+# Tests and coverage
+**/tests/
+**/unit_tests/
+.pytest_cache/
+.coverage
+htmlcov/
+pytest.ini
+
+# Development configs
+pylint.rc
+Makefile
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Demo files
+demo/
+
+# Python cache
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+.DS_Store
