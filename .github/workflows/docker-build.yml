@@ -120,7 +120,6 @@ jobs:
           platforms: linux/amd64
 
       - name: Push to registries
-        if: github.event_name != 'pull_request'
         run: |
           for registry in ${{ steps.registries.outputs.registries }}; do
             echo "Pushing to ${registry}..."
