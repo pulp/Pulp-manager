@@ -1,0 +1,44 @@
+# Pulp Manager - Pulp Server Configuration
+# This is an example configuration file included in the Docker image.
+# For production use, mount your own pulp_config.yml at /etc/pulp_manager/pulp_config.yml
+# or set PULP_SYNC_CONFIG_PATH environment variable.
+
+# Example configuration with no servers defined
+# Add your Pulp servers and sync schedules here
+
+pulp_servers: {}
+# Example server configuration:
+# pulp_servers:
+#   pulp-primary:80:
+#     credentials: local
+#     repo_groups:
+#       default:
+#         schedule: "0 * * * *"  # Every hour
+#         max_concurrent_syncs: 1
+#         max_runtime: "1h"
+#
+#   pulp-secondary:80:
+#     credentials: local
+#     repo_groups:
+#       external_repos:
+#         schedule: "*/5 * * * *"  # Every 5 minutes
+#         max_concurrent_syncs: 2
+#         max_runtime: "6h"
+#         pulp_master: pulp-primary:80
+
+credentials: {}
+# Example credentials:
+# credentials:
+#   local:
+#     username: admin
+#     vault_service_account_mount: local-auth
+
+repo_groups: {}
+# Example repo groups:
+# repo_groups:
+#   default:
+#     regex_include: ".*"  # Match all repositories
+#   external_repos:
+#     regex_include: "^ext"  # Match repositories starting with "ext"
+#   internal_repos:
+#     regex_include: "^int"  # Match repositories starting with "int"

@@ -39,11 +39,27 @@ RUN apt-get update && apt-get install -y netcat-openbsd git make python3-dev lib
 COPY --from=builder /opt/venv /opt/venv
 # Copy requirements file
 COPY --from=builder /pulp_manager/requirements.txt ./
-# Copy the entire project
-COPY . .
+
+# Copy application code
+COPY pulp_manager ./pulp_manager/
+COPY pulp3_bindings ./pulp3_bindings/
+COPY hashi_vault_client ./hashi_vault_client/
+
+# Copy database migration files
+COPY alembic ./alembic/
+COPY alembic.ini ./
+
+# Copy entrypoint script
+COPY pulp-manager.sh ./
+
+# Install default configs to /etc/pulp_manager/
+RUN mkdir -p /etc/pulp_manager
+COPY config-examples/config.ini /etc/pulp_manager/config.ini
+COPY config-examples/pulp_config.yml /etc/pulp_manager/pulp_config.yml
 
 # Ensure correct permissions
 RUN chown -R pulp_manager:pulp_manager /pulp_manager \
+    && chown -R pulp_manager:pulp_manager /etc/pulp_manager \
     && ln -s /pulp_manager/pulp-manager.sh /usr/local/bin/pulp-manager
 
 USER 10001
