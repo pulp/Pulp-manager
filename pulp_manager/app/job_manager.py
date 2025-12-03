@@ -176,6 +176,9 @@ class JobManager:
             ):
                 scheduler.cancel(job)
 
+        # Get local config dir from CONFIG if set, otherwise None (will clone from git)
+        local_config_dir = CONFIG["pulp"].get("local_repo_config_dir", None)
+
         scheduler.cron(
             pulp_server.repo_config_registration_schedule,
             func=register_repos,
@@ -184,6 +187,7 @@ class JobManager:
                 pulp_server.name,
                 pulp_server.repo_config_registration_regex_include,
                 pulp_server.repo_config_registration_regex_exclude,
+                local_config_dir,
             ],
             result_ttl=172800,
             timeout=pulp_server.repo_config_registration_max_runtime,
@@ -193,6 +197,7 @@ class JobManager:
                 "pulp_server": pulp_server.name,
                 "regex_include": pulp_server.repo_config_registration_regex_include,
                 "regex_exclude": pulp_server.repo_config_registration_regex_exclude,
+                "local_repo_config_dir": local_config_dir,
             },
         )
 

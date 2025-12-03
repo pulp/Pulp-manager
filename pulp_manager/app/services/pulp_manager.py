@@ -169,6 +169,11 @@ class PulpManager(PulpServerService):
         if not base_url.endswith("/"):
             base_url = f"{base_url}/"
 
+        # If base_url already ends with the name (e.g., "int-demo-packages/" and name is "int-demo-packages"),
+        # don't duplicate it
+        if base_url.rstrip("/") == name:
+            return name
+
         return self._process_package_name(name, base_url)
 
     def _process_package_name(self, name: str, base_url: str):
@@ -667,6 +672,8 @@ class PulpManager(PulpServerService):
         if repo_href and pulp_distribution.repository != repo_href:
             updates_needed = True
             pulp_distribution.repository = repo_href
+            # Clear publication when setting repository (can only have one or the other)
+            pulp_distribution.publication = None
 
         if updates_needed:
             log.debug(

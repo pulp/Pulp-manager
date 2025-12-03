@@ -1,0 +1,135 @@
+---
+# Playbook to sync repositories and setup internal demo package
+# Run this after the main playbook completes
+
+- name: Setup Demo Repositories
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    pulp_manager_url: "http://localhost:8080"
+    project_dir: "{{ playbook_dir }}/../.."
+    package_file: "{{ playbook_dir }}/../../demo/assets/packages/hello_2.10-2_amd64.deb"
+    pulp_primary:
+      name: "primary"
+      url: "http://localhost:8000"
+      container: "demo-pulp-primary-1"
+
+  tasks:
+    - name: Trigger repository discovery and sync on primary server
+      uri:
+        url: "{{ pulp_manager_url }}/v1/pulp_servers/1/sync_repos"
+        method: POST
+        body_format: json
+        body:
+          max_runtime: "3600"
+          max_concurrent_syncs: 5
+        status_code: [200, 201]
+      register: primary_sync
+
+    - name: Wait for primary server repository discovery
+      uri:
+        url: "{{ pulp_manager_url }}/v1/tasks/{{ primary_sync.json.id }}"
+        method: GET
+      register: primary_sync_task
+      until: primary_sync_task.json.state in ["completed", "failed"]
+      retries: 60
+      delay: 3
+
+    - name: Display primary sync result
+      debug:
+        msg: "Primary server sync: {{ primary_sync_task.json.state }}"
+
+    - name: Check if int-demo-packages repository exists
+      shell: docker exec {{ pulp_primary.container }} pulp deb repository show --name 'int-demo-packages'
+      register: repo_check
+      failed_when: false
+
+    - name: Fail if repository doesn't exist
+      fail:
+        msg: "Repository int-demo-packages does not exist. Run the main playbook first to create repos."
+      when: repo_check.rc != 0
+
+    - name: Upload package content to int-demo-packages
+      shell: |
+        docker cp {{ package_file }} {{ pulp_primary.container }}:/tmp/package.deb
+        docker exec {{ pulp_primary.container }} bash -c "
+          # Check if repo already has content
+          has_content=\$(pulp deb repository show --name 'int-demo-packages' | grep 'latest_version_href' | grep -v '/versions/0/')
+          if [ -z \"\$has_content\" ]; then
+            pulp deb content upload --file /tmp/package.deb --repository 'int-demo-packages'
+            echo 'Package uploaded'
+          else
+            echo 'Repository already has content, skipping upload'
+          fi
+          rm -f /tmp/package.deb
+        "
+      register: upload_result
+
+    - name: Display upload result
+      debug:
+        msg: "{{ upload_result.stdout_lines }}"
+
+    - name: Create publication and distribution for int-demo-packages
+      shell: |
+        docker exec {{ pulp_primary.container }} bash -c "
+          # Create publication
+          pulp deb publication create --repository 'int-demo-packages' --simple
+
+          # Get latest publication href
+          pub_href=\$(pulp deb publication list --repository 'int-demo-packages' --limit 1 | grep 'Pulp href' | awk '{print \$3}')
+
+          # Update distribution to point to publication
+          if pulp deb distribution show --name 'int-demo-packages' 2>/dev/null; then
+            pulp deb distribution update --name 'int-demo-packages' --publication \"\$pub_href\"
+            echo 'Distribution updated with new publication'
+          else
+            echo 'ERROR: Distribution int-demo-packages does not exist'
+            exit 1
+          fi
+        "
+      register: publish_result
+
+    - name: Display publish result
+      debug:
+        msg: "{{ publish_result.stdout_lines }}"
+
+    - name: Trigger repository discovery on secondary server
+      uri:
+        url: "{{ pulp_manager_url }}/v1/pulp_servers/2/sync_repos"
+        method: POST
+        body_format: json
+        body:
+          max_runtime: "3600"
+          max_concurrent_syncs: 5
+        status_code: [200, 201]
+      register: secondary_sync
+
+    - name: Wait for secondary server repository discovery
+      uri:
+        url: "{{ pulp_manager_url }}/v1/tasks/{{ secondary_sync.json.id }}"
+        method: GET
+      register: secondary_sync_task
+      until: secondary_sync_task.json.state in ["completed", "failed"]
+      retries: 60
+      delay: 3
+
+    - name: Display secondary sync result
+      debug:
+        msg: "Secondary server sync: {{ secondary_sync_task.json.state }}"
+
+    - name: Display completion message
+      debug:
+        msg:
+          - ""
+          - "============================================"
+          - "Demo Repositories Setup Complete!"
+          - "============================================"
+          - ""
+          - "Primary server: Synced from external sources"
+          - "Internal package: hello_2.10-2_amd64.deb uploaded"
+          - "Secondary server: Synced from primary"
+          - ""
+          - "Repository: int-demo-packages is now available on both servers"
+          - ""

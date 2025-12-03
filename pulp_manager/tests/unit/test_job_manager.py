@@ -1,3 +1,4 @@
+
 """Tests for ensuring jobs are correct added to redis
 """
 
@@ -122,7 +123,7 @@ class TestJobManager:
         assert len(jobs) == 1
 
         job = jobs[0]
-        assert job.args == ["test_pulp_server_repo_registration", None, None]
+        assert job.args == ["test_pulp_server_repo_registration", None, None, None]
         assert job.meta["job_type"] == "REPO_REGISTRATION_SCHEDULED"
         assert job.meta["pulp_server"] == "test_pulp_server_repo_registration"
         assert job.meta["regex_include"] == None

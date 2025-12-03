@@ -7,6 +7,7 @@ import shutil
 import socket
 import tempfile
 import traceback
+from contextlib import contextmanager
 from datetime import datetime
 
 from git import Repo
@@ -43,18 +44,31 @@ class RepoConfigRegister(PulpServerService):
         job = get_current_job()
         self._job_id = job.id if job else None
 
-    def _clone_pulp_repo_config(self):
-        """Creates a temporary directory to clone the repo config defined in CONFIG.
-        Returns the path to the directory that was created
+    @contextmanager
+    def _get_repo_config_directory(self, local_path=None):
+        """Context manager that yields a config directory path.
 
-        :return: str
+        If local_path is provided, yields it directly (no cleanup needed).
+        Otherwise, clones from git to a temp directory and cleans up on exit.
+
+        :param local_path: Optional local filesystem path to config directory
+        :type local_path: str or None
+        :yield: str - Path to the config directory
         """
-
-        temp_dir = tempfile.mkdtemp(prefix="pulp_manager", dir="/tmp")
-        log.info(f"created {temp_dir} to clone repo config into")
-        Repo.clone_from(CONFIG["pulp"]["git_repo_config"], temp_dir)
-        log.info(f"clone into {temp_dir} completed")
-        return os.path.join(temp_dir, CONFIG["pulp"]["git_repo_config_dir"])
+        if local_path:
+            log.info(f"Using local repo config directory: {local_path}")
+            yield local_path
+        else:
+            temp_dir = tempfile.mkdtemp(prefix="pulp_manager", dir="/tmp")
+            try:
+                log.info(f"Created {temp_dir} to clone repo config into")
+                Repo.clone_from(CONFIG["pulp"]["git_repo_config"], temp_dir)
+                log.info(f"Clone into {temp_dir} completed")
+                config_dir = os.path.join(temp_dir, CONFIG["pulp"]["git_repo_config_dir"])
+                yield config_dir
+            finally:
+                log.debug(f"Cleaning up cloned repo at {temp_dir}")
+                shutil.rmtree(temp_dir)
 
     #pylint:disable=line-too-long,too-many-branches
     def _generate_repo_config_from_file(self, file_path: str):
@@ -217,14 +231,14 @@ class RepoConfigRegister(PulpServerService):
 
         return parsed_repo_configs
 
-    def create_repos_from_git_config(self, regex_include: str=None, regex_exclude: str=None):
-        """Creates/updates repos on the target pulp server with repo config that is defined in git.
-        The repo to clone from is defined in the confi.ini
+    def create_repos_from_config(self, regex_include: str=None, regex_exclude: str=None, local_repo_config_dir: str=None):
         """
-
+        Creates/updates repos on the target pulp server with repo config that is defined in git or a local directory.
+        If local_repo_config_dir is provided, use it directly. Otherwise, clone from git.
+        """
         current_repo = None
         task = self._task_crud.add(**{
-            "name": f"{self._pulp_server_name} repo registartion",
+            "name": f"{self._pulp_server_name} repo registration",
             "date_started": datetime.utcnow(),
             "task_type": "repo_creation_from_git",
             "state": "running",
@@ -232,24 +246,22 @@ class RepoConfigRegister(PulpServerService):
             "worker_job_id": self._job_id,
             "task_args": {
                 "regex_include": regex_include,
-                "regex_exclude": regex_exclude
+                "regex_exclude": regex_exclude,
+                "local_repo_config_dir": local_repo_config_dir
             }
         })
         self._db.commit()
 
-        repo_config_dir = None
-
         try:
-            repo_config_dir = self._clone_pulp_repo_config()
-            log.debug("repo cloned to {repo_config_dir}")
-            repo_configs = self._parse_repo_config_files(
-                repo_config_dir, regex_include, regex_exclude
-            )
+            with self._get_repo_config_directory(local_repo_config_dir) as repo_config_dir:
+                repo_configs = self._parse_repo_config_files(
+                    repo_config_dir, regex_include, regex_exclude
+                )
 
-            for config in repo_configs:
-                log.debug(f"create/update repo for {config['name']}")
-                current_repo = config
-                self._pulp_manager.create_or_update_repository(**config)
+                for config in repo_configs:
+                    log.debug(f"create/update repo for {config['name']}")
+                    current_repo = config
+                    self._pulp_manager.create_or_update_repository(**config)
 
             self._task_crud.update(task, **{
                 "state": "completed", "date_finished": datetime.utcnow()
@@ -258,7 +270,7 @@ class RepoConfigRegister(PulpServerService):
         except Exception:
             message = f"unexpected error occured registering repos on {self._pulp_server_name}"
             if current_repo:
-                message = f"failed to create/update repo for {config['name']}"
+                message = f"failed to create/update repo for {current_repo['name']}"
             log.error(message)
             log.error(traceback.format_exc())
 
@@ -274,7 +286,3 @@ class RepoConfigRegister(PulpServerService):
 
             self._db.commit()
             raise
-        finally:
-            if repo_config_dir:
-                log.debug(f"tidying up cloned repo {repo_config_dir}")
-                shutil.rmtree(repo_config_dir)

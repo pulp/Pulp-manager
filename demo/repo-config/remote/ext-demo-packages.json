@@ -1,0 +1,11 @@
+{
+  "name": "ext-demo-packages",
+  "description": "External demo packages from nginx.org",
+  "owner": "pulp-primary",
+  "base_url": "ext-demo-packages",
+  "content_repo_type": "deb",
+  "url": "http://nginx.org/packages/debian/",
+  "releases": "bookworm",
+  "components": "nginx",
+  "architectures": "amd64"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "int-demo-packages",
+  "description": "Internal demo repository",
+  "owner": "pulp-primary",
+  "base_url": "int-demo-packages",
+  "content_repo_type": "deb",
+  "releases": ["stable"],
+  "architectures": ["amd64"],
+  "components": ["main"],
+  "ignore_missing_package_indices": true
+}

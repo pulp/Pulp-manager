@@ -989,3 +989,24 @@ class TestPulpManager:
         result = self.pulp_manager._process_package_name("acme-prod-webserver", "http://example.com/")
 
         assert result == "http://example.com/prod/acme/webserver"
+
+    def test_generate_base_path_no_duplication(self):
+        """Tests that _generate_base_path doesn't duplicate when base_url equals name
+        """
+        # When base_url equals name, should not duplicate
+        result = self.pulp_manager._generate_base_path("int-demo-packages", "int-demo-packages")
+        assert result == "int-demo-packages"
+
+        # When base_url equals name with trailing slash, should not duplicate
+        result = self.pulp_manager._generate_base_path("int-demo-packages", "int-demo-packages/")
+        assert result == "int-demo-packages"
+
+    def test_generate_base_path_with_different_base_url(self):
+        """Tests that _generate_base_path works correctly when base_url differs from name
+        """
+        CONFIG["pulp"]["package_name_replacement_pattern"] = ""
+        CONFIG["pulp"]["package_name_replacement_rule"] = ""
+
+        # When base_url is different from name, should concatenate
+        result = self.pulp_manager._generate_base_path("ext-centos7", "el7-x86_64")
+        assert result == "el7-x86_64/ext-centos7"

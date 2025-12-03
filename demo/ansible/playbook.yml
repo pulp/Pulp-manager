@@ -1,19 +1,27 @@
 ---
 # Ansible playbook to set up Pulp Manager and Pulp Server demo environment
 
-- name: Setup Pulp Demo Environment
+- name: Setup Pulp Manager Demo Environment
   hosts: localhost
   connection: local
   gather_facts: false
 
   vars:
-    pulp_primary_url: "http://localhost:8000"
-    pulp_secondary_url: "http://localhost:8001"
     pulp_manager_url: "http://localhost:8080"
     pulp_username: "admin"
     pulp_password: "password"
     project_dir: "{{ playbook_dir }}/../.."
-    package_file: "{{ playbook_dir }}/../../demo/assets/packages/hello_2.10-2_amd64.deb"
+    pulp_primary:
+      name: "primary"
+      url: "http://localhost:8000"
+      container: "demo-pulp-primary-1"
+    pulp_secondary:
+      name: "secondary"
+      url: "http://localhost:8001"
+      container: "demo-pulp-secondary-1"
+    pulp_servers:
+      - "{{ pulp_primary }}"
+      - "{{ pulp_secondary }}"
 
   tasks:
     - name: Setup Docker network
@@ -85,272 +93,86 @@
       args:
         chdir: "{{ project_dir }}"
 
-    - name: Wait for Pulp Primary to be ready
-      pulp.squeezer.status:
-        pulp_url: "{{ pulp_primary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-      register: primary_status
-      until: primary_status is not failed
+    - name: Wait for Pulp servers to be ready
+      uri:
+        url: "{{ item.url }}/pulp/api/v3/status/"
+        method: GET
+        force_basic_auth: true
+        url_username: "{{ pulp_username }}"
+        url_password: "{{ pulp_password }}"
+        status_code: [200]
+      register: server_status
+      until: server_status is not failed
       retries: 60
       delay: 5
+      loop: "{{ pulp_servers }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-    - name: Wait for Pulp Secondary to be ready
-      pulp.squeezer.status:
-        pulp_url: "{{ pulp_secondary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-      register: secondary_status
-      until: secondary_status is not failed
-      retries: 60
-      delay: 5
-
-    - name: Register signing service on primary
+    - name: Install pulp-cli in Pulp containers
       shell: |
-        docker exec demo-pulp-primary-1 sh -c '
+        docker exec {{ item.container }} bash -c "pip install --quiet pulp-cli pulp-cli-deb"
+      loop: "{{ pulp_servers }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Configure pulp-cli in containers
+      shell: |
+        docker exec {{ item.container }} bash -c "
+          mkdir -p /root/.config/pulp
+          cat > /root/.config/pulp/settings.toml <<EOF
+        [cli]
+        base_url = \"http://localhost\"
+        username = \"{{ pulp_username }}\"
+        password = \"{{ pulp_password }}\"
+        verify_ssl = false
+        EOF
+        "
+      loop: "{{ pulp_servers }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Register signing service on all servers
+      shell: |
+        docker exec {{ item.container }} sh -c '
           existing=$(pulpcore-manager shell -c "from pulpcore.app.models import SigningService; print(SigningService.objects.filter(name=\"deb_signing_service\").exists())" 2>/dev/null)
           if [ "$existing" != "True" ]; then
             key_id=$(GNUPGHOME=/opt/gpg gpg --list-secret-keys --with-colons 2>/dev/null | grep "^sec:" | cut -d: -f5 | head -1)
             if [ -n "$key_id" ]; then
               pulpcore-manager add-signing-service deb_signing_service /opt/scripts/deb_sign.sh "$key_id" --gnupghome /opt/gpg 2>/dev/null
-              echo "Signing service created on primary"
+              echo "Signing service created on {{ item.name }}"
             fi
           else
-            echo "Signing service already exists on primary"
+            echo "Signing service already exists on {{ item.name }}"
           fi
         '
+      loop: "{{ pulp_servers }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-    - name: Register signing service on secondary
-      shell: |
-        docker exec demo-pulp-secondary-1 sh -c '
-          existing=$(pulpcore-manager shell -c "from pulpcore.app.models import SigningService; print(SigningService.objects.filter(name=\"deb_signing_service\").exists())" 2>/dev/null)
-          if [ "$existing" != "True" ]; then
-            key_id=$(GNUPGHOME=/opt/gpg gpg --list-secret-keys --with-colons 2>/dev/null | grep "^sec:" | cut -d: -f5 | head -1)
-            if [ -n "$key_id" ]; then
-              pulpcore-manager add-signing-service deb_signing_service /opt/scripts/deb_sign.sh "$key_id" --gnupghome /opt/gpg 2>/dev/null
-              echo "Signing service created on secondary"
-            fi
-          else
-            echo "Signing service already exists on secondary"
-          fi
-        '
-
-    - name: Create int-demo-packages repository on primary
-      pulp.squeezer.deb_repository:
-        pulp_url: "{{ pulp_primary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-        name: "int-demo-packages"
-        description: "Internal demo repository\n base_url: int-demo-packages"
-        state: present
-      register: int_repo
-
-    - name: Create ext-small-repo repository on primary
-      pulp.squeezer.deb_repository:
-        pulp_url: "{{ pulp_primary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-        name: "ext-small-repo"
-        description: "External demo repository\n base_url: ext-small-repo"
-        state: present
-      register: ext_repo
-
-    - name: Create int-demo-packages repository on secondary
-      pulp.squeezer.deb_repository:
-        pulp_url: "{{ pulp_secondary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-        name: "int-demo-packages"
-        description: "Internal demo repository\n base_url: int-demo-packages"
-        state: present
-
-    - name: Create ext-small-repo repository on secondary
-      pulp.squeezer.deb_repository:
-        pulp_url: "{{ pulp_secondary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-        name: "ext-small-repo"
-        description: "External demo repository\n base_url: ext-small-repo"
-        state: present
-
-    - name: Get int-demo-packages repository details
-      pulp.squeezer.deb_repository:
-        pulp_url: "{{ pulp_primary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-        name: "int-demo-packages"
-        state: present
-      register: int_repo_info
-
-    - name: Check if demo package already exists
+    - name: Wait for repos to be created on primary server
       uri:
-        url: "{{ pulp_primary_url }}{{ int_repo_info.repository.latest_version_href }}content/?limit=100"
+        url: "{{ pulp_manager_url }}/v1/pulp_servers/1/repos"
         method: GET
-        force_basic_auth: true
-        url_username: "{{ pulp_username }}"
-        url_password: "{{ pulp_password }}"
-        status_code: [200, 404]
-      register: repo_content
-      when: int_repo_info.repository.latest_version_href is defined and int_repo_info.repository.latest_version_href != None
-
-    - name: Set package exists fact
-      set_fact:
-        package_exists: "{{ repo_content.json.results | selectattr('relative_path', 'defined') | selectattr('relative_path', 'search', 'hello') | list | length > 0 }}"
-      when: repo_content is defined and repo_content.json is defined and repo_content.status == 200
-
-    - name: Upload demo package
-      uri:
-        url: "{{ pulp_primary_url }}/pulp/api/v3/content/deb/packages/"
-        method: POST
-        body_format: form-multipart
-        body:
-          file:
-            filename: hello_2.10-2_amd64.deb
-            content: "{{ lookup('file', package_file) | b64encode }}"
-            mime_type: application/octet-stream
-        force_basic_auth: true
-        url_username: "{{ pulp_username }}"
-        url_password: "{{ pulp_password }}"
-        status_code: [201, 202]
-      register: upload_result
-      when: package_exists is not defined or not package_exists
-
-    - name: Wait for upload task to complete
-      pulp.squeezer.task:
-        pulp_url: "{{ pulp_primary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-        href: "{{ upload_result.json.task }}"
-      register: upload_task
-      until: upload_task.task.state == "completed"
-      retries: 30
-      delay: 2
-      when: upload_result is changed
-
-    - name: Get content href from task
-      set_fact:
-        content_href: "{{ upload_task.task.created_resources[0] }}"
-      when: upload_result is changed
-
-    - name: Add content to int-demo-packages repository
-      pulp.squeezer.deb_repository:
-        pulp_url: "{{ pulp_primary_url }}"
-        username: "{{ pulp_username }}"
-        password: "{{ pulp_password }}"
-        name: "int-demo-packages"
-        state: present
-        content_units:
-          - "{{ content_href }}"
-      when: upload_result is changed
-
-    - name: Create publication for int-demo-packages
-      uri:
-        url: "{{ pulp_primary_url }}/pulp/api/v3/publications/deb/apt/"
-        method: POST
-        body_format: json
-        body:
-          repository: "{{ int_repo_info.repository.pulp_href }}"
-          simple: true
-        force_basic_auth: true
-        url_username: "{{ pulp_username }}"
-        url_password: "{{ pulp_password }}"
-        status_code: [201, 202]
-      register: int_publication_create
-
-    - name: Wait for publication task
-      uri:
-        url: "{{ pulp_primary_url }}{{ int_publication_create.json.task }}"
-        method: GET
-        force_basic_auth: true
-        url_username: "{{ pulp_username }}"
-        url_password: "{{ pulp_password }}"
-      register: publication_task
-      until: publication_task.json.state == "completed"
-      retries: 30
-      delay: 2
-      when: int_publication_create.json.task is defined
-
-    - name: Get publication href
-      set_fact:
-        int_publication_href: "{{ publication_task.json.created_resources[0] }}"
-      when: publication_task.json is defined
-
-    - name: Check if distribution exists
-      uri:
-        url: "{{ pulp_primary_url }}/pulp/api/v3/distributions/deb/apt/?name=int-demo-packages"
-        method: GET
-        force_basic_auth: true
-        url_username: "{{ pulp_username }}"
-        url_password: "{{ pulp_password }}"
-      register: dist_check
-
-    - name: Update existing distribution
-      uri:
-        url: "{{ pulp_primary_url }}{{ dist_check.json.results[0].pulp_href }}"
-        method: PATCH
-        body_format: json
-        body:
-          publication: "{{ int_publication_href }}"
-        force_basic_auth: true
-        url_username: "{{ pulp_username }}"
-        url_password: "{{ pulp_password }}"
-        status_code: [200, 202]
-      when: dist_check.json.count > 0
-
-    - name: Create new distribution
-      uri:
-        url: "{{ pulp_primary_url }}/pulp/api/v3/distributions/deb/apt/"
-        method: POST
-        body_format: json
-        body:
-          name: "int-demo-packages"
-          base_path: "int-demo-packages"
-          publication: "{{ int_publication_href }}"
-        force_basic_auth: true
-        url_username: "{{ pulp_username }}"
-        url_password: "{{ pulp_password }}"
-        status_code: [201, 202]
-      when: dist_check.json.count == 0
-
-    - name: Trigger repository discovery on primary server
-      uri:
-        url: "{{ pulp_manager_url }}/v1/pulp_servers/1/sync_repos"
-        method: POST
-        body_format: json
-        body:
-          max_runtime: "3600"
-          max_concurrent_syncs: 5
-        status_code: [200, 201]
-      register: primary_sync
-
-    - name: Wait for primary server repository discovery
-      uri:
-        url: "{{ pulp_manager_url }}/v1/tasks/{{ primary_sync.json.id }}"
-        method: GET
-      register: primary_sync_task
-      until: primary_sync_task.json.state in ["completed", "failed"]
-      retries: 30
+      register: primary_repo_check
+      until: primary_repo_check.status == 200 and 'int-demo-packages' in (primary_repo_check.json | string)
+      retries: 35
       delay: 2
 
-    - name: Trigger repository discovery on secondary server
+    - name: Wait for repos to be created on secondary server
       uri:
-        url: "{{ pulp_manager_url }}/v1/pulp_servers/2/sync_repos"
-        method: POST
-        body_format: json
-        body:
-          max_runtime: "3600"
-          max_concurrent_syncs: 5
-        status_code: [200, 201]
-      register: secondary_sync
-
-    - name: Wait for secondary server repository discovery
-      uri:
-        url: "{{ pulp_manager_url }}/v1/tasks/{{ secondary_sync.json.id }}"
+        url: "{{ pulp_manager_url }}/v1/pulp_servers/2/repos"
         method: GET
-      register: secondary_sync_task
-      until: secondary_sync_task.json.state in ["completed", "failed"]
-      retries: 30
+      register: secondary_repo_check
+      until: secondary_repo_check.status == 200 and 'int-demo-packages' in (secondary_repo_check.json | string)
+      retries: 35
       delay: 2
+
+    - name: Display repo creation status
+      debug:
+        msg:
+          - "Primary server: Repos found"
+          - "Secondary server: Repos found"
 
     - name: Display completion message
       debug:
@@ -360,19 +182,13 @@
           - "Demo Setup Complete!"
           - "============================================"
           - ""
-          - "Available repositories on primary:"
-          - "  - ext-small-repo: {{ pulp_primary_url }}/pulp/content/ext-small-repo/"
-          - "  - int-demo-packages: {{ pulp_primary_url }}/pulp/content/int-demo-packages/"
-          - ""
-          - "Available repositories on secondary:"
-          - "  - ext-small-repo: {{ pulp_secondary_url }}/pulp/content/ext-small-repo/"
-          - "  - int-demo-packages: {{ pulp_secondary_url }}/pulp/content/int-demo-packages/"
-          - ""
           - "Pulp Manager API: {{ pulp_manager_url }}"
           - "RQ Dashboard: http://localhost:9181"
           - ""
-          - "To sync repositories from primary to secondary:"
-          - "  curl -X POST '{{ pulp_manager_url }}/v1/pulp_servers/2/sync_repos' \\"
-          - "    -H 'Content-Type: application/json' \\"
-          - "    -d '{\"max_runtime\": \"3600\", \"max_concurrent_syncs\": 2, \"regex_include\": \"^int\", \"source_pulp_server_name\": \"pulp-primary:80\"}'"
+          - "Repositories have been created from demo/repo-config/"
+          - ""
+          - "Next step - sync repos and upload demo package:"
+          - "  ansible-playbook demo/ansible/setup_repos.yml"
+          - ""
+          - "See README.md for usage examples."
           - ""
