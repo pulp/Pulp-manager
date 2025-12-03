@@ -34,23 +34,36 @@ class TestRepoConfigRegister:
         engine.dispose()
 
     @patch("pulp_manager.app.services.repo_config_register.Repo.clone_from")
-    def test_clone_pulp_repo_config(self, mock_clone_from):
-        """Tests that a directory gets created which would contain checked out code from git
+    def test_get_repo_config_directory_from_git(self, mock_clone_from):
+        """Tests that the context manager clones from git and cleans up afterwards
         """
 
         def clone_from(url, to_path):
             """Creates the repo_config directory in the to_path, as this would exist
             once the repo has been checked out
             """
-
             repo_config_path = os.path.join(to_path, "repo_config")
             os.mkdir(repo_config_path)
 
         mock_clone_from.side_effect = clone_from
+        temp_dir_created = None
 
-        git_clone_dir = self.repo_config_register._clone_pulp_repo_config()
-        assert os.path.isdir(git_clone_dir)
-        shutil.rmtree(git_clone_dir)
+        with self.repo_config_register._get_repo_config_directory() as config_dir:
+            assert os.path.isdir(config_dir)
+            # Store parent temp dir to verify cleanup
+            temp_dir_created = os.path.dirname(config_dir)
+            assert os.path.isdir(temp_dir_created)
+
+        # Verify cleanup happened after context manager exits
+        assert not os.path.exists(temp_dir_created)
+
+    def test_get_repo_config_directory_with_local_path(self):
+        """Tests that the context manager yields local path directly without cloning
+        """
+        local_path = "/some/local/path"
+
+        with self.repo_config_register._get_repo_config_directory(local_path) as config_dir:
+            assert config_dir == local_path
 
     @patch("pulp_manager.app.services.repo_config_register.os.path.isfile")
     @patch("pulp_manager.app.services.repo_config_register.HashiVaultClient.read_kv_secret")
